@@ -85,6 +85,8 @@ Route::group(['prefix' => 'admin', 'middleware' => ['auth.admin']], function () 
 
     Route::group(['prefix' => 'images'], function () {
         Route::get('', [AdminImageController::class, 'index'])->name('admin.images');
+        // 注意：batch 必须放在 {id} 前面，否则会被 {id} 路由吞掉
+        Route::delete('batch', [AdminImageController::class, 'batchDelete'])->name('admin.images.batch-delete');
         Route::put('{id}', [AdminImageController::class, 'update'])->name('admin.image.update');
         Route::delete('{id}', [AdminImageController::class, 'delete'])->name('admin.image.delete');
     });

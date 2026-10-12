@@ -93,4 +93,22 @@ class ImageController extends Controller
         (new UserService())->deleteImages([$image->id]);
         return $this->success('删除成功');
     }
+
+    public function batchDelete(Request $request): Response
+    {
+        $ids = collect($request->input('ids', []))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($ids)) {
+            return $this->fail('请选择要删除的图片');
+        }
+
+        $count = (new UserService())->deleteImages($ids);
+
+        return $this->success("成功删除 {$count} 张图片");
+    }
 }

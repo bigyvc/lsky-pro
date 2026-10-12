@@ -12,10 +12,22 @@
         </form>
 
         @if($images->isNotEmpty())
+            <div class="flex items-center gap-4 px-1 py-2">
+                <label class="flex items-center gap-1.5 text-sm text-ink-2 cursor-pointer select-none">
+                    <input type="checkbox" id="select-all" class="w-4 h-4 rounded accent-brand">
+                    全选
+                </label>
+                <button id="batch-delete" class="hidden items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-red-500 text-white hover:bg-red-600">
+                    <i class="fas fa-trash"></i>
+                    批量删除 (<span id="selected-count">0</span>)
+                </button>
+            </div>
             <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-2">
                 @foreach($images as $image)
                 <div data-json='{{ $image->toJson() }}' class="item relative flex flex-col items-center justify-center overflow-hidden rounded-md cursor-pointer group">
-                    <div class="flex absolute top-1 left-1 z-[1] space-x-1">
+                    <input type="checkbox" data-id="{{ $image->id }}" title="选择"
+                           class="item-select absolute top-2 left-2 z-[2] w-4 h-4 rounded accent-brand cursor-pointer shadow">
+                    <div class="flex absolute top-1 left-9 z-[1] space-x-1">
                         @if($image->is_unhealthy)
                             <span class="bg-red-500 text-white rounded-md text-sm px-1 py-0">违规</span>
                         @endif
@@ -390,6 +402,68 @@
             $('.item .delete').click(function (e) {
                 e.stopPropagation();
                 del($(this).data('id'));
+            });
+
+            // ---- 批量选择与批量删除 ----
+            function selectedIds() {
+                return $('.item-select:checked').map(function () {
+                    return $(this).data('id');
+                }).get();
+            }
+
+            function refreshBatchUI() {
+                let ids = selectedIds();
+                let total = $('.item-select').length;
+                $('#selected-count').text(ids.length);
+                let btn = $('#batch-delete');
+                if (ids.length > 0) {
+                    btn.removeClass('hidden').addClass('inline-flex');
+                } else {
+                    btn.addClass('hidden').removeClass('inline-flex');
+                }
+                $('#select-all').prop('checked', ids.length > 0 && ids.length === total);
+            }
+
+            $('#select-all').change(function () {
+                $('.item-select').prop('checked', $(this).prop('checked'));
+                refreshBatchUI();
+            });
+
+            // 复选框点击不能冒泡到 .item（否则会打开预览弹窗）
+            $(document).on('click', '.item-select', function (e) {
+                e.stopPropagation();
+            });
+
+            $(document).on('change', '.item-select', refreshBatchUI);
+
+            $('#batch-delete').click(function () {
+                let ids = selectedIds();
+                if (!ids.length) {
+                    return;
+                }
+                Swal.fire({
+                    title: `确认删除选中的 ${ids.length} 张图片吗?`,
+                    text: "记录与物理文件将会一起删除，且不可恢复。",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: '确认删除',
+                    cancelButtonText: '取消',
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        axios.delete('/admin/images/batch', {data: {ids: ids}}).then(response => {
+                            if (response.data.status) {
+                                toastr.success(response.data.message);
+                                setTimeout(function () {
+                                    history.go(0);
+                                }, 1000);
+                            } else {
+                                toastr.error(response.data.message);
+                            }
+                        }).catch(() => {
+                            toastr.error('删除失败，请稍后重试');
+                        });
+                    }
+                });
             });
 
             $('#modal-content').on('click', '.delete', function (e) {
