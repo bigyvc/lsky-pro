@@ -608,7 +608,7 @@ done
 grep -E '自动补入|自动迁移|迁移前已备份' "$LOGDIR/phase4b-new.log" | sed 's/^/    /'
 grep -q '自动迁移完成' "$LOGDIR/phase4b-new.log" \
     || { echo "::error::自动迁移没报成功（老站点的新表应当被自动补上）"; exit 1; }
-grep -q '自动补入 2 个新迁移文件' "$LOGDIR/phase4b-new.log" \
+grep -q '自动补入 3 个新迁移文件' "$LOGDIR/phase4b-new.log" \
     || { echo "::error::没有把缺失的迁移文件自动补进卷"; exit 1; }
 
 docker run --rm -i -v "$VOL":/var/www/html --entrypoint sh "$NEW_REF" > "$LOGDIR/phase4b-out.out" 2>&1 <<'EOSH'
@@ -621,6 +621,7 @@ $tabs = [];
 foreach ($db->query("SELECT name FROM sqlite_master WHERE type=\"table\"") as $r) { $tabs[] = $r[0]; }
 echo "HAS_TAGS=".(in_array("tags", $tabs) ? "yes" : "no").PHP_EOL;
 echo "HAS_IMAGE_TAG=".(in_array("image_tag", $tabs) ? "yes" : "no").PHP_EOL;
+echo "HAS_TELEGRAM_FILES=".(in_array("telegram_files", $tabs) ? "yes" : "no").PHP_EOL;
 echo "MIGRATIONS_ROWS=".$db->query("SELECT COUNT(*) FROM migrations")->fetchColumn().PHP_EOL;
 '
 echo "VOLUME_MIGRATION_FILES=$(ls database/migrations/*.php 2>/dev/null | wc -l | tr -d ' ')"
@@ -630,8 +631,9 @@ EOSH
 sed -n '1,/DB_FIRST_USER/p' "$LOGDIR/phase4b-out.out" | grep -v '^$' | sed 's/^/    /'
 assert_eq "$LOGDIR/phase4b-out.out" HAS_TAGS        "yes" "tags 表被自动建好（无需人工 migrate）"
 assert_eq "$LOGDIR/phase4b-out.out" HAS_IMAGE_TAG   "yes" "image_tag 表被自动建好"
-assert_eq "$LOGDIR/phase4b-out.out" MIGRATIONS_ROWS "12"  "记账表涨到 12 条（上游 10 + fork 2）"
-assert_eq "$LOGDIR/phase4b-out.out" VOLUME_MIGRATION_FILES "12" "缺失的迁移文件被自动补进卷"
+assert_eq "$LOGDIR/phase4b-out.out" HAS_TELEGRAM_FILES "yes" "telegram_files 表被自动建好"
+assert_eq "$LOGDIR/phase4b-out.out" MIGRATIONS_ROWS "13"  "记账表涨到 13 条（上游 10 + fork 3）"
+assert_eq "$LOGDIR/phase4b-out.out" VOLUME_MIGRATION_FILES "13" "缺失的迁移文件被自动补进卷"
 assert_eq "$LOGDIR/phase4b-out.out" DB_ROWS         "$(key "$SNAP_BEFORE" DB_ROWS)"        "哨兵行数没变"
 assert_eq "$LOGDIR/phase4b-out.out" DB_FINGERPRINT  "$(key "$SNAP_BEFORE" DB_FINGERPRINT)" "哨兵数据指纹逐字节不变"
 dbk=$(key "$LOGDIR/phase4b-out.out" AUTO_BACKUPS)
