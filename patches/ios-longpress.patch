@@ -293,7 +293,7 @@
   * Copyright Jacob Kelley, Modified by WispX
   * MIT License
 + *
-+ * ===== fork 补丁（mole404/lsky-pro-docker）=====
++ * ===== fork 补丁（bigyvc/lsky-pro）=====
 + * 背景一：iOS 上的 WebKit 永远不会派发 contextmenu 事件（WebKit bug 213953），
 + * 长按图片只会弹出系统 callout，于是"我的图片"里的自定义菜单在 iPhone/iPad 上完全不可用。
 + * 处理：在**不改动原有 contextmenu 路径**的前提下，新增一条仅 iOS 生效的长按分支：
@@ -1483,7 +1483,7 @@
 + * Copyright Jacob Kelley, Modified by WispX
 + * MIT License
 + *
-+ * ===== fork 补丁（mole404/lsky-pro-docker）=====
++ * ===== fork 补丁（bigyvc/lsky-pro）=====
 + * 背景一：iOS 上的 WebKit 永远不会派发 contextmenu 事件（WebKit bug 213953），
 + * 长按图片只会弹出系统 callout，于是"我的图片"里的自定义菜单在 iPhone/iPad 上完全不可用。
 + * 处理：在**不改动原有 contextmenu 路径**的前提下，新增一条仅 iOS 生效的长按分支：

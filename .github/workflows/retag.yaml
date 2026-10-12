@@ -75,7 +75,7 @@ jobs:
           TO: ${{ inputs.to_tag }}
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/mole404/lsky-pro-docker"
+          IMAGE="ghcr.io/bigyvc/lsky-pro-docker"
           # 注意：本步骤带 set -o pipefail，`cmd | head` 会因 SIGPIPE 退出 255 把整步搞红
           # （这个坑以前踩过）→ 一律先写文件、再 head，不把 inspect 接到 head/grep 的管道里。
           #

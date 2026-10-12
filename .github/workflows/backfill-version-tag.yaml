@@ -34,7 +34,7 @@ jobs:
       contents: read
       packages: write    # 打 tag 必需；这也是本地补打会 401 的原因
     env:
-      IMAGE: ghcr.io/mole404/lsky-pro-docker
+      IMAGE: ghcr.io/bigyvc/lsky-pro-docker
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

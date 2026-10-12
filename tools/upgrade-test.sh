@@ -40,14 +40,14 @@
 #        （旧容器先 rm 掉，再起新的 —— 任何时刻最多一个容器在跑 entrypoint）。
 #
 # 本地复跑（不需要 docker build，公开镜像直接 docker pull）：
-#   IMAGE_REF=ghcr.io/mole404/lsky-pro-docker:sha-<本次 commit> \
+#   IMAGE_REF=ghcr.io/bigyvc/lsky-pro-docker:sha-<本次 commit> \
 #   GITHUB_SHA=$(git -C <repo> rev-parse HEAD) bash tools/upgrade-test.sh
 #   # 基线默认自动解析；要钉死某一版再跑：加 UPGRADE_FROM_TAG=sha-<commit>
 # 注意：NEW_REF 必须先存在于本地（脚本只 inspect、不 pull 新镜像；CI 里前一步已 pull）。
 # ============================================================================
 set -euo pipefail
 
-IMAGE="${IMAGE:-ghcr.io/mole404/lsky-pro-docker}"
+IMAGE="${IMAGE:-ghcr.io/bigyvc/lsky-pro-docker}"
 IMAGE_REF="${IMAGE_REF:-}"
 # 升级基线（不可变 tag）默认**动态解析**（见下方 resolve_upgrade_base）；环境变量是覆盖手段，
 # 只有「GHCR 匿名 API 挂了又要立刻出包」时才手工钉一个已知的 sha-<commit>。
@@ -80,7 +80,7 @@ OLD_REF=""            # ditto
 resolve_upgrade_base() {
     local host path tok tmp cands tag
     host="${IMAGE%%/*}"          # ghcr.io
-    path="${IMAGE#*/}"           # mole404/lsky-pro-docker
+    path="${IMAGE#*/}"           # bigyvc/lsky-pro-docker
     tmp=$(mktemp "${TMPDIR:-/tmp}/upgrade-bases.XXXXXX") || return 1
     cands="$tmp.cands"
     rm -f "$tmp" "$cands"

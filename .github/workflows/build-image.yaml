@@ -79,7 +79,7 @@ concurrency:
 
 env:
   TZ: Asia/Shanghai
-  IMAGE: ghcr.io/mole404/lsky-pro-docker
+  IMAGE: ghcr.io/bigyvc/lsky-pro-docker
   # 注意：上游 pin 与 PHP 版本**不在这里写死**，由「Resolve pinned values from Dockerfile」
   # 从 Dockerfile 解析（单一事实来源）。
   # 原因（真事故）：这里曾硬编码 911275c，Dockerfile 升到 38d52c46 后它没跟着改，

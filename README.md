@@ -8,7 +8,7 @@
 
 ---
 
-**本仓库镜像地址：`ghcr.io/mole404/lsky-pro-docker:latest`**  
+**本仓库镜像地址：`ghcr.io/bigyvc/lsky-pro-docker:latest`**  
 **最新版 `3.6.3`**  
 
 <details>
@@ -110,7 +110,7 @@ Docker Compose（推荐）：
 ```yaml
 services:
   lsky-pro:
-    image: ghcr.io/mole404/lsky-pro-docker:latest
+    image: ghcr.io/bigyvc/lsky-pro-docker:latest
     container_name: lsky-pro
     restart: unless-stopped
     ports:
@@ -128,7 +128,7 @@ docker run -d --name lsky-pro --restart unless-stopped \
     -p 127.0.0.1:8089:8089 \
     -v "$PWD/lsky-pro/data:/var/www/html" \
     -e WEB_PORT=8089 \
-    ghcr.io/mole404/lsky-pro-docker:latest
+    ghcr.io/bigyvc/lsky-pro-docker:latest
 ```
 
 容器挂载卷路径可按你的实际情况改（上例是 `$PWD/lsky-pro/data`，`$PWD` 就是你执行命令时所在目录）。  

@@ -140,7 +140,7 @@
                         <div class="py-2.5 sm:grid sm:grid-cols-4 sm:gap-4">
                             <dt class="text-ink-3 text-[13.5px]">仓库地址</dt>
                             <dd class="mt-0.5 text-ink text-[13.5px] break-words sm:mt-0 sm:col-span-3">
-                                <a target="_blank" class="text-brand break-all hover:underline" href="https://github.com/mole404/lsky-pro-docker">https://github.com/mole404/lsky-pro-docker</a>
+                                <a target="_blank" class="text-brand break-all hover:underline" href="https://github.com/bigyvc/lsky-pro">https://github.com/bigyvc/lsky-pro</a>
                             </dd>
                         </div>
                     </dl>
