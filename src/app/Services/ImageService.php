@@ -18,6 +18,7 @@ use App\Enums\Strategy\MinioOption;
 use App\Enums\Strategy\OssOption;
 use App\Enums\Strategy\S3Option;
 use App\Enums\Strategy\SftpOption;
+use App\Enums\Strategy\TelegramOption;
 use App\Enums\Strategy\UssOption;
 use App\Enums\Strategy\WebDavOption;
 use App\Enums\StrategyKey;
@@ -27,6 +28,7 @@ use App\Enums\Watermark\FontOption;
 use App\Enums\Watermark\ImageOption;
 use App\Enums\Watermark\Mode;
 use App\Exceptions\UploadException;
+use App\Filesystem\TelegramAdapter;
 use App\Models\Group;
 use App\Models\Image;
 use App\Models\Strategy;
@@ -358,6 +360,12 @@ class ImageService
                     'bucket_endpoint' => (bool)$configs->get(MinioOption::BucketEndpoint),
                 ]),
                 bucket: $configs->get(MinioOption::Bucket),
+            ),
+            StrategyKey::Telegram => new TelegramAdapter(
+                botToken: (string)$configs->get(TelegramOption::BotToken),
+                chatId: (string)$configs->get(TelegramOption::ChatId),
+                strategyId: $strategy->id,
+                apiBase: $configs->get(TelegramOption::ApiBase) ?: 'https://api.telegram.org',
             ),
         };
     }

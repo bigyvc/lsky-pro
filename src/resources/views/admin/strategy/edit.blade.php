@@ -377,6 +377,34 @@
                                 </div>
                             </div>
                         @endif
+
+                        @if($strategy->key === \App\Enums\StrategyKey::Telegram)
+                            <div class="col-span-6 mb-4" data-driver="{{ \App\Enums\StrategyKey::Telegram }}">
+                                <div class="col-span-3 sm:col-span-2 mb-4">
+                                    <label for="configs[url]" class="block text-sm font-medium text-ink"><span class="text-danger">*</span>访问域名</label>
+                                    <x-input type="url" name="configs[url]" id="configs[url]" placeholder="请输入图片访问域名 http(s)://" value="{{ $strategy->configs->get('url') }}" />
+                                    <small class="text-orange-500"><i class="fas fa-exclamation"></i> Telegram 策略必须配合角色组的「原图保护」使用（走应用中转输出），请勿用作直链策略，否则会泄露 Bot Token。此处访问域名仅作占位，建议填写你的图床域名。</small>
+                                </div>
+                                <div class="col-span-3 sm:col-span-2 mb-4">
+                                    <label for="configs[queries]" class="block text-sm font-medium text-ink">URL Queries</label>
+                                    <x-input type="text" name="configs[queries]" id="configs[queries]" placeholder="请输入 url 额外参数" value="{{ $strategy->configs->get('queries') }}" />
+                                </div>
+                                <div class="col-span-3 sm:col-span-2 mb-4">
+                                    <label for="configs[bot_token]" class="block text-sm font-medium text-ink"><span class="text-danger">*</span>Bot Token</label>
+                                    <x-input type="password" name="configs[bot_token]" id="configs[bot_token]" placeholder="从 @BotFather 获取，例如：123456:AAExxx" value="{{ $strategy->configs->get('bot_token') }}" />
+                                    <small class="text-ink-2"><i class="fas fa-exclamation-circle"></i> Token 只保存在服务端，绝不会出现在图片 URL 中。</small>
+                                </div>
+                                <div class="col-span-3 sm:col-span-2 mb-4">
+                                    <label for="configs[chat_id]" class="block text-sm font-medium text-ink"><span class="text-danger">*</span>频道 Chat ID</label>
+                                    <x-input type="text" name="configs[chat_id]" id="configs[chat_id]" placeholder="例如：-1001234567890" value="{{ $strategy->configs->get('chat_id') }}" />
+                                    <small class="text-ink-2"><i class="fas fa-exclamation-circle"></i> Bot 必须是该频道的管理员；文件以 document 形式发送到此频道（原图，不压缩）。</small>
+                                </div>
+                                <div class="col-span-3 sm:col-span-2 mb-4">
+                                    <label for="configs[api_base]" class="block text-sm font-medium text-ink">Bot API 地址</label>
+                                    <x-input type="url" name="configs[api_base]" id="configs[api_base]" placeholder="默认 https://api.telegram.org，可填自建 Bot API 服务" value="{{ $strategy->configs->get('api_base') }}" />
+                                </div>
+                            </div>
+                        @endif
                     </div>
                     <div class="px-4 py-3 bg-surface-2 text-right sm:px-6">
                         <x-button type="button" class="bg-surface-2" onclick="history.go(-1)">取消</x-button>

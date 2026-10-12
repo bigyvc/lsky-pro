@@ -301,6 +301,20 @@ src/app/Http/Controllers/Admin/UserController.php
 #   src/lang/zh_CN.json（__('Name') 全站只有注册页 auth/register.blade.php 用这一处，改它不影响别处；
 #     个人资料页那行「姓名」是硬编码，改在 src/resources/views/user/dashboard.blade.php 里 —— 该文件本就在 [5] 段内）
 src/lang/zh_CN.json
+
+# [12 Telegram 存储驱动（2026-10-12）：新增 StrategyKey::Telegram=11 与配套的 Flysystem
+#   适配器（app/Filesystem/TelegramAdapter.php：Bot API 以 document 形式发到指定频道存图，
+#   原图不压缩；path -> file_id / message_id 映射持久化在新增的 telegram_files 表），
+#   DRIVERS / 后台表单 / 校验规则跟进。注意 Bot Token 绝不能进公开 URL，
+#   该策略必须配合角色组的「原图保护」使用（走应用中转输出）。
+#   只登记「内容不同」的上游文件；新增文件（TelegramOption.php / TelegramFile.php /
+#   TelegramAdapter.php / 迁移文件）在脚本输出里只出现在「只在一边存在」一节，不参与报警。
+#   src/app/Enums/StrategyKey.php（+ Telegram = 11）
+src/app/Enums/StrategyKey.php
+#   src/app/Models/Strategy.php（DRIVERS 加 Telegram）
+src/app/Models/Strategy.php
+#   src/app/Http/Requests/Admin/StrategyRequest.php（rules / attributes 加 Telegram 分支）
+src/app/Http/Requests/Admin/StrategyRequest.php
 EOF
 )
 # 去掉注释/空行/行尾空白，得到排序后的文件清单

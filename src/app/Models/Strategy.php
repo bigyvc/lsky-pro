@@ -55,6 +55,7 @@ class Strategy extends Model
         StrategyKey::Ftp => 'FTP',
         StrategyKey::Webdav => 'WebDav',
         StrategyKey::Minio => 'Minio',
+        StrategyKey::Telegram => 'Telegram',
     ];
 
     const WEBDAV_AUTH_TYPES = [

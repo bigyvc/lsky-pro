@@ -33,4 +33,7 @@ final class StrategyKey
 
     /** @var int Minio */
     const Minio = 10;
+
+    /** @var int Telegram（Bot API 发到频道存图） */
+    const Telegram = 11;
 }

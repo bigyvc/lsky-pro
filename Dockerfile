@@ -118,6 +118,8 @@ RUN printf '%s\n' \
 # 拼成存储路径并由 Image::url() 原样拼成直链（全程无 rawurlencode），名字里带 ? 会让直链
 # 在 ? 处被截断成查询串 ⇒ 图片永远打不开（# 更彻底，请求都不会发出）。这些字符在正常
 # 文件名里不会出现，所以对正常文件名是恒等变换 —— 不改变现有命名结果与链接形态。
+# 2026-10-12 再追加：新增 Telegram 存储驱动（StrategyKey::Telegram=11），getAdapter()
+# 里加了 match 分支 + 两个 use 导入（见 README「与上游的差异」）。
 # routes/auth.php 也是有意偏离（F23 防爆破）：给 login / register / forgot-password /
 # confirm-password 四个 POST 端点加了 throttle（详见文件内注释）。它同样被钉住，
 # 改了不更新这行 md5 就构建失败。
@@ -126,7 +128,7 @@ RUN printf '%s\n' \
         'dcc6b370414cf329b7902cdd85f33d2f  ./config/convention.php' \
         '881fdbaed19ef39027783f093448875d  ./routes/web.php' \
         'c1ab546f3e7f5237c1d45435171858ce  ./routes/auth.php' \
-        '06c38d587ac188750af34aaf224a239d  ./app/Services/ImageService.php' \
+        'f88d2be5e4baa411edee66be9332cd41  ./app/Services/ImageService.php' \
     | md5sum -c -
 
 # 有意偏离上游的另一个文件：composer.lock。

@@ -135,6 +135,11 @@ class StrategyRequest extends FormRequest
                 'configs.bucket' => 'required',
                 'configs.bucket_endpoint' => '',
             ],
+            StrategyKey::Telegram => [
+                'configs.bot_token' => 'required',
+                'configs.chat_id' => 'required',
+                'configs.api_base' => 'nullable|url',
+            ],
         });
     }
 
@@ -215,6 +220,11 @@ class StrategyRequest extends FormRequest
                 'configs.region' => '区域',
                 'configs.bucket' => 'Bucket 名称',
                 'configs.bucket_endpoint' => 'BucketEndpoint',
+            ],
+            StrategyKey::Telegram => [
+                'configs.bot_token' => 'Bot Token',
+                'configs.chat_id' => '频道 Chat ID',
+                'configs.api_base' => 'Bot API 地址',
             ],
         });
     }
