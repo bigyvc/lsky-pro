@@ -77,9 +77,7 @@
 ## 界面预览
 
 <img width="1920" height="869" alt="6ac68bfc94a7f" src="https://github.com/user-attachments/assets/6ed36f64-5e26-4f9d-be2f-9d247abc3816" />
-<img width="1920" height="869" alt="PixPin_2026-10-06_21-32-32" src="https://github.com/user-attachments/assets/89d9ddc2-718f-4b76-ae83-9bdb6679b49e" />
-<img width="1920" height="1079" alt="PixPin_2026-10-08_02-16-26" src="https://github.com/user-attachments/assets/821c-3d2ef2564ff0" />
-<img width="1920" height="869" alt="PixPin_2026-10-08_02-15-24" src="https://github.com/user-attachments/assets/ae83-9bdb6679b49e" />
+
 <img width="1920" height="869" alt="PixPin_2026-10-06_21-30-20" src="https://github.com/user-attachments/assets/00abe223-8c35-4b76-ae83-9bdb6679b49e" />
 
 ---
