@@ -35,6 +35,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        // Imagick 全局资源上限：Imagick 不认 PHP 的 memory_limit，超大图（如 354MB PNG）
+        // 解码时会无视 PHP 限制直接吃掉数 GB 内存，导致 OOM killer 干掉 PHP worker
+        //（连接断掉、前台 500，且一行日志都不留——try/catch 也救不了被杀掉的进程）。
+        // 设了上限后，超限时 Imagick 抛 ImagickException（可被现有 try/catch 接住降级），
+        // 而不是把机器内存吃光。只在 imagick 扩展存在时设。
+        if (extension_loaded('imagick') && class_exists(\Imagick::class)) {
+            \Imagick::setResourceLimit(\Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024);
+            \Imagick::setResourceLimit(\Imagick::RESOURCETYPE_MAP, 512 * 1024 * 1024);
+            \Imagick::setResourceLimit(\Imagick::RESOURCETYPE_DISK, 2 * 1024 * 1024 * 1024);
+        }
+
         // sqlite 并发参数（B9）：连接建立时把 journal_mode 设成 WAL。
         // 为什么不去 config/database.php 里写 'journal_mode'/'busy_timeout'：Laravel 9.52 的 sqlite
         // 驱动**不认**这两个键（SQLiteConnector 只读 database/options，SQLiteConnection 只多读

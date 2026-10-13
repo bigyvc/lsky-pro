@@ -160,9 +160,10 @@ class ImageService
             $format = $configs->get(GroupConfigKey::ImageSaveFormat);
             if ($quality < 100 || $format) {
                 try {
-                    // 图片解码需要数倍于文件大小的内存（如 354MB 的 PNG 解压后可达数 GB）：
-                    // 先尝试把 memory_limit 放宽到 512M（只升不降）；超大文件仍可能失败，
-                    // 此时降级使用原图继续上传，而不是直接 500。
+                    // 图片解码需要数倍于文件大小的内存：先尝试把 PHP memory_limit
+                    // 放宽到 512M（只升不降；注意 Imagick 驱动不认这个值，它的上限在
+                    // AppServiceProvider 里全局设了，超限会抛可捕获的异常）。
+                    // 超大文件仍可能失败，此时降级使用原图继续上传，而不是直接 500。
                     $this->raiseMemoryLimitForImageProcessing();
                     // 获取拓展名，判断是否需要转换
                     $format = $format ?: $extension;
@@ -602,6 +603,15 @@ class ImageService
 
         if (! file_exists($pathname) || $force) {
             try {
+                // 先估算解码所需内存（宽×高×4字节 RGBA），超 256M 直接跳过：
+                // 超大图（如数百 MB 的 PNG）解码需要数 GB 内存，Imagick 又不认 PHP 的
+                // memory_limit，硬解会拖垮机器（此前因此 OOM 过整台 VPS）。
+                // 宽高来自 getimagesize（只读文件头，不解码全图），各调用点均已落库。
+                if ($image->width > 0 && $image->height > 0
+                    && $image->width * $image->height * 4 > 256 * 1024 * 1024) {
+                    throw new \Exception("图片尺寸 {$image->width}x{$image->height} 过大，跳过缩略图生成");
+                }
+
                 // 创建文件夹
                 if (! is_dir(dirname($pathname))) {
                     @mkdir(dirname($pathname));
