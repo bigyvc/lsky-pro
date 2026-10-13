@@ -394,7 +394,8 @@ RUN printf '%s\n' \
     && php -r '$m = ini_get("memory_limit"); if ($m !== "64M") { fwrite(STDERR, "memory_limit 自证失败：读回 ".var_export($m, true)."，期望 64M（zz-lsky-hardening.ini 是否被别的 ini 覆盖？）".PHP_EOL); exit(1); } echo "memory_limit=".$m."（entrypoint 可用 PHP_MEMORY_LIMIT 运行期覆盖）".PHP_EOL;' \
     && php -r '$p = ini_get("post_max_size"); if ($p !== "512M") { fwrite(STDERR, "post_max_size 自证失败：读回 ".var_export($p, true)."，期望 512M（docker-php-upload.ini 是否被别的 ini 覆盖？）".PHP_EOL); exit(1); } echo "post_max_size=".$p."（整个请求体上限）".PHP_EOL;' \
     && php -r '$u = ini_get("upload_max_filesize"); if ($u !== "512M") { fwrite(STDERR, "upload_max_filesize 自证失败：读回 ".var_export($u, true)."，期望 512M".PHP_EOL); exit(1); } echo "upload_max_filesize=".$u."（单个文件上限，必须 ≤ post_max_size）".PHP_EOL;' \
-    && php -r '$t = ini_get("max_input_time"); if ($t !== "600") { fwrite(STDERR, "max_input_time 自证失败：读回 ".var_export($t, true)."，期望 600（大文件上传时解析请求体的时间上限）".PHP_EOL); exit(1); } echo "max_input_time=".$t."（请求体解析时间上限，与 max_execution_time 对齐）".PHP_EOL;' \
+    && grep -qx 'max_input_time = 600;' /usr/local/etc/php/conf.d/docker-php-upload.ini \
+    && echo 'max_input_time=600（只核配置文件：与 max_execution_time 一样，CLI 下 ini_get 不反映真实值，Web 侧生效值由 CI 起真容器再验）' \
     && grep -qx 'max_execution_time = 600S;' /usr/local/etc/php/conf.d/docker-php-upload.ini \
     && echo 'max_execution_time=600S（只核配置文件：CLI 读回恒为 0，Web 侧生效值由 CI 起真容器再验）'
 
