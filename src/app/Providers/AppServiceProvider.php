@@ -9,8 +9,10 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -66,7 +68,32 @@ class AppServiceProvider extends ServiceProvider
                     '_is_notice' => strip_tags(Utils::config(ConfigKey::SiteNotice)),
                 ]);
             });
+
+            // 欢迎页（游客上传页）背景：Bing 每日一图。后端拉取（浏览器直接 fetch 会被 CORS 拦），
+            // 结果缓存 12 小时；取不到时为 null，页面退回纯色背景。
+            View::composer('welcome', function (\Illuminate\View\View $view) {
+                $view->with('_bing_bg', self::bingDailyImage());
+            });
         }
+    }
+
+    /**
+     * Bing 每日一图 URL（welcome 页背景用）。
+     * 失败时缓存空字符串 12 小时，避免每次请求都去撞超时。
+     */
+    protected static function bingDailyImage(): ?string
+    {
+        $url = Cache::remember('bing_daily_bg', now()->addHours(12), function () {
+            try {
+                $path = Http::timeout(3)->get('https://www.bing.com/HPImageArchive.aspx', [
+                    'format' => 'js', 'idx' => 0, 'n' => 1, 'mkt' => 'zh-CN',
+                ])->json('images.0.url');
+                return $path ? 'https://www.bing.com' . $path : '';
+            } catch (\Throwable $e) {
+                return '';
+            }
+        });
+        return $url ?: null;
     }
 
     /**

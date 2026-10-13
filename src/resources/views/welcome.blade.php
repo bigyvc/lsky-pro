@@ -3,7 +3,13 @@
 @endpush
 
 <x-guest-layout :floating-theme-switch="false">
-    <div class="py-14">
+    <div class="py-14 relative min-h-screen bg-cover bg-center"
+         @if(!empty($_bing_bg)) style="background-image: url('{{ $_bing_bg }}');" @endif>
+        @if(!empty($_bing_bg))
+            {{-- Bing 背景上的柔光罩，保证卡片与文字可读；暗色模式下加深 --}}
+            <div class="absolute inset-0 bg-white/50 dark:bg-black/50 pointer-events-none" aria-hidden="true"></div>
+        @endif
+        <div class="relative">
         {{-- 这一行与 app 布局顶栏同一套几何：左侧标题吃掉剩余宽度（min-w-0 + truncate，窄屏自动截断，
              绝不与右侧抢位）、右侧一组 shrink-0。
              外观切换以前是 guest 布局里「贴视口右上角」的浮动版，与这一行差 8px（纵向，顶栏 56px 内
@@ -44,10 +50,11 @@
             <x-upload/>
         </div>
         <footer class="absolute bottom-0 left-0 right-0 w-full bg-surface-3">
-            <p class="container mx-auto py-2 px-5 sm:px-10 md:px-10 lg:px-10 xl:px-10 2xl:px-60 text-ink-2 text-sm">
-                Copyright © 2018 - present Lsky Pro. All rights reserved. &nbsp;<a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">{{ \App\Utils::config(\App\Enums\ConfigKey::IcpNo) }}</a>&nbsp;请勿上传违反中国大陆和香港法律的图片，违者后果自负。
+            <p class="container mx-auto py-2 px-5 sm:px-10 md:px-10 lg:px-10 xl:px-10 2xl:px-60 text-ink-2 text-sm text-center">
+                <a href="https://github.com/bigyvc/lsky-pro" target="_blank" rel="noreferrer" class="hover:text-ink">为天地立心，为生民立命，为往圣继绝学，为万世开太平</a>
             </p>
         </footer>
+        </div>
     </div>
 
     @include('common.notice')
