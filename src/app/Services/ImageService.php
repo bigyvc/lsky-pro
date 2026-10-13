@@ -159,14 +159,25 @@ class ImageService
             $quality = $configs->get(GroupConfigKey::ImageSaveQuality, 75);
             $format = $configs->get(GroupConfigKey::ImageSaveFormat);
             if ($quality < 100 || $format) {
-                // 获取拓展名，判断是否需要转换
-                $format = $format ?: $extension;
-                $filename = Str::replaceLast($extension, $format, $file->getClientOriginalName());
-                $handleImage = InterventionImage::make($file)->save('tmp_' . md5_file($file->getRealPath()), $quality);
-                $file = new UploadedFile($handleImage->basePath(), $filename, $handleImage->mime());
-                // 重新设置拓展名
-                $extension = $format;
-                $handleImage->destroy();
+                try {
+                    // 图片解码需要数倍于文件大小的内存（如 354MB 的 PNG 解压后可达数 GB）：
+                    // 先尝试把 memory_limit 放宽到 512M（只升不降）；超大文件仍可能失败，
+                    // 此时降级使用原图继续上传，而不是直接 500。
+                    $this->raiseMemoryLimitForImageProcessing();
+                    // 获取拓展名，判断是否需要转换
+                    $format = $format ?: $extension;
+                    $filename = Str::replaceLast($extension, $format, $file->getClientOriginalName());
+                    $handleImage = InterventionImage::make($file)->save('tmp_' . md5_file($file->getRealPath()), $quality);
+                    $file = new UploadedFile($handleImage->basePath(), $filename, $handleImage->mime());
+                    // 重新设置拓展名
+                    $extension = $format;
+                    $handleImage->destroy();
+                } catch (\Throwable $e) {
+                    if (isset($handleImage)) {
+                        try { $handleImage->destroy(); } catch (\Throwable) {}
+                    }
+                    Utils::e($e, '图片质量重编码失败，已跳过并使用原图上传');
+                }
             }
 
             // 是否启用水印，覆盖原图片
@@ -174,10 +185,19 @@ class ImageService
                 $configs->get(GroupConfigKey::IsEnableWatermark) &&
                 collect($configs->get(GroupConfigKey::WatermarkConfigs))->get('mode', Mode::Overlay) == Mode::Overlay
             ) {
-                $watermarkImage = $this->stickWatermark($file, collect($configs->get(GroupConfigKey::WatermarkConfigs)));
-                $watermarkImage->save();
-                $file = new UploadedFile($watermarkImage->basePath(), $file->getClientOriginalName(), $file->getMimeType());
-                $watermarkImage->destroy();
+                try {
+                    // 同上：水印也要先解码全图，超大文件可能爆内存，失败则降级用原图
+                    $this->raiseMemoryLimitForImageProcessing();
+                    $watermarkImage = $this->stickWatermark($file, collect($configs->get(GroupConfigKey::WatermarkConfigs)));
+                    $watermarkImage->save();
+                    $file = new UploadedFile($watermarkImage->basePath(), $file->getClientOriginalName(), $file->getMimeType());
+                    $watermarkImage->destroy();
+                } catch (\Throwable $e) {
+                    if (isset($watermarkImage)) {
+                        try { $watermarkImage->destroy(); } catch (\Throwable) {}
+                    }
+                    Utils::e($e, '图片水印处理失败，已跳过并使用原图上传');
+                }
             }
         }
 
@@ -543,6 +563,28 @@ class ImageService
         }
 
         return $image;
+    }
+
+    /**
+     * 图片解码（Intervention/GD）需要数倍于文件大小的内存，
+     * 尝试将 memory_limit 放宽到 512M。只升不降：若当前限制已更高
+     * （如用户通过 PHP_MEMORY_LIMIT 手动调高）或为 -1（不限制）则不动。
+     */
+    protected function raiseMemoryLimitForImageProcessing(): void
+    {
+        $limit = strtolower(trim((string) ini_get('memory_limit')));
+        if ($limit === '' || $limit === '-1') {
+            return;
+        }
+        $bytes = (int) $limit * match (substr($limit, -1)) {
+            'g' => 1024 ** 3,
+            'm' => 1024 ** 2,
+            'k' => 1024,
+            default => 1,
+        };
+        if ($bytes < 512 * 1024 * 1024) {
+            @ini_set('memory_limit', '512M');
+        }
     }
 
     /**
