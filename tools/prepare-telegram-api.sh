@@ -41,8 +41,8 @@ PY
 rm -f "$api_dir/existing-networks.json"
 cp "$script_dir/telegram-api/Dockerfile" "$api_dir/Dockerfile"
 echo "已按实际服务名 $service 准备 $override"
-echo "先在 $api_dir/.env 填 API ID/API Hash；Bot Token 只填图床的独立归档 TG 策略。"
+echo "先在 $api_dir/.env 填 API ID/API Hash；Bot Token 只保存在图床 TG 策略；可独立归档，也可按手册切换现有 Bot。"
 echo '本脚本没有启动或更新容器。现有端口、数据库和数据卷没有删除。'
 printf '检查合并配置：docker compose -p %q -f %q -f %q config --quiet\n' "$project" "$base" "$override"
 printf '构建成功后先拉取图床镜像：docker compose -p %q -f %q -f %q pull %q\n' "$project" "$base" "$override" "$service"
-printf '镜像构建成功后部署：docker compose -p %q -f %q -f %q up -d --build\n' "$project" "$base" "$override"
+printf '镜像构建成功后部署：docker compose -p %q -f %q -f %q up -d --build --no-deps telegram-bot-api %q\n' "$project" "$base" "$override" "$service"

@@ -21,7 +21,7 @@
 4. 自建模式填内网API地址，例如 `http://telegram-bot-api:8081`，共享目录 `/var/lib/telegram-bot-api`。两个容器应使用相同绝对路径，图床只读，www-data必须有读取权限。
 5. 普通上传将策略绑定到相应角色组；专用于R2归档的独立策略无需绑定上传组。
 
-自建R2归档的部署、Worker转发和9.5GB阈值配置见 [归档说明](r2-archive-telegram.md)。建议使用独立归档Bot，避免切换游客现用Bot的API会话。已经在官方API登录过的Bot，迁到自建服务前需按Telegram文档调用logOut。
+自建R2归档的部署、Worker转发和9.5GB阈值配置见 [归档说明](r2-archive-telegram.md)。可用独立归档 Bot，也可复用现有游客 Bot 与频道。复用时保留原策略 ID，同一 Bot 的全部策略一起切换；先暂停上传并调用官方 logOut，再验证自建接口并更新 api_base/local_root。API ID/API Hash 填在自建服务的 .env，不填图床策略。完整命令及验证见归档手册。
 
 ## 保存、删除与访问
 
