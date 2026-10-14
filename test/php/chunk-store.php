@@ -1,0 +1,58 @@
+<?php
+require __DIR__.'/../../src/app/Services/ChunkUploadStore.php';
+use App\Services\ChunkUploadStore;
+function check($value, $message) { if (!$value) throw new Exception($message); }
+function rejects($fn, $message) { try { $fn(); } catch (RuntimeException $e) { echo "PASS $message\n"; return; } throw new Exception("Expected rejection: $message"); }
+$root = sys_get_temp_dir().'/lsky-chunks-test-'.bin2hex(random_bytes(8));
+$store = new ChunkUploadStore($root);
+$size = 354 * 1024 * 1024 + 634 * 1024;
+$metadata = ['name'=>'large.png','size'=>$size,'fingerprint'=>'test','strategy_id'=>1];
+$state = $store->begin('user:1', $metadata, null, function ($pending) { check($pending === 0, 'new reservation'); });
+$id = $state['id'];
+rejects(fn()=> $store->complete('user:1', $id, fn()=> []), 'missing parts cannot commit');
+rejects(fn()=> $store->put('user:2', $id, 0, __FILE__), 'other user cannot access upload');
+rejects(fn()=> $store->put('user:1', '../bad', 0, __FILE__), 'path traversal rejected');
+rejects(fn()=> $store->put('user:1', $id, 0, __FILE__), 'wrong part length rejected');
+$source = $root.'/part-source';
+$h = fopen($source, 'wb');
+for ($i=0; $i<50; $i++) fwrite($h, str_repeat('x', 1024*1024));
+fclose($h);
+$store->put('user:1', $id, 2, $source);
+$store->put('user:1', $id, 2, $source);
+$resumed = $store->begin('user:1', $metadata, $id, fn()=>null);
+check($resumed['received'] === [2], 'resume sees one accepted part');
+echo "PASS out-of-order and repeated parts, resume\n";
+$changed = $metadata; $changed['name']='different.png';
+rejects(fn()=> $store->begin('user:1', $changed, $id, fn()=>null), 'mismatched resume rejected');
+$h=fopen($source,'r+b'); fwrite($h,'y'); fclose($h);
+rejects(fn()=> $store->put('user:1',$id,2,$source), 'conflicting repeated part rejected');
+$h=fopen($source,'r+b'); fwrite($h,'x'); fclose($h);
+$store->begin('user:1', ['name'=>'second.png','size'=>100,'fingerprint'=>'2','strategy_id'=>1], null, function($pending) use($size) {check($pending===$size, 'staged bytes reserved');});
+$count=(int)ceil($size/ChunkUploadStore::CHUNK_SIZE);
+foreach ([6,0,4,1,5,3] as $i) $store->put('user:1',$id,$i,$source);
+$h=fopen($source,'wb'); fwrite($h,str_repeat('z', $size-7*ChunkUploadStore::CHUNK_SIZE)); fclose($h);
+$store->put('user:1',$id,7,$source);
+$expected=hash_init('sha256');
+for($i=0;$i<350;$i++) hash_update($expected,str_repeat('x',1024*1024));
+hash_update($expected,str_repeat('z',$size-7*ChunkUploadStore::CHUNK_SIZE));
+$expected=hash_final($expected);
+$calls=0;
+$result=$store->complete('user:1',$id,function($path,$file)use(&$calls,$size,$expected){
+    $calls++; check(filesize($path)===$size,'merged length'); check(hash_file('sha256',$path)===$expected,'merged bytes/order');
+    check(memory_get_peak_usage(true)<16*1024*1024,'bounded PHP memory');
+    return ['status'=>true,'message'=>'ok','data'=>['id'=>123]];
+});
+check($store->complete('user:1',$id,fn()=>throw new Exception('duplicate commit'))===$result,'completion result cached');
+check($calls===1,'one commit');
+echo "PASS 354.62 MiB disk merge, bytes verified, <16 MiB peak, idempotent completion\n";
+$done=$store->begin('user:1',$metadata,$id,fn()=>null);
+check($done['result']===$result,'resume after lost response recovers completion');
+$failure=$store->begin('user:3',['name'=>'tiny.png','size'=>3,'fingerprint'=>'3','strategy_id'=>1],null,fn()=>null);
+file_put_contents($source,'abc'); $store->put('user:3',$failure['id'],0,$source);
+rejects(fn()=> $store->complete('user:3',$failure['id'],fn()=>throw new RuntimeException('unknown external commit')), 'failed commit reported');
+rejects(fn()=> $store->complete('user:3',$failure['id'],fn()=>[]), 'uncertain external commit not repeated');
+foreach (glob($root.'/*/*/meta.json') as $path) { $m=json_decode(file_get_contents($path),true);$m['updated_at']=time()-ChunkUploadStore::TTL-1;file_put_contents($path,json_encode($m)); }
+$store->prune();check(!glob($root.'/*/*/meta.json'),'expired tasks pruned');
+echo "PASS 24-hour cleanup\n";
+$it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
+foreach($it as $item) $item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($root);

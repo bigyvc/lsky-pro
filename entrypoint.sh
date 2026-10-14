@@ -605,4 +605,11 @@ rmdir /var/www/html/public/images 2>/dev/null || true
 # 兜一层 `||` 是刻意的：本脚本 set -eu，函数万一非 0 冒泡出去会让容器直接起不来。
 auto_migrate || echo "[lsky] 警告：自动迁移步骤异常（不影响启动，详见上方日志）"
 
+# 分片暂存自动清理：不依赖宿主机 cron；只清理专用目录内24小时未更新的任务。
+(
+    while sleep 3600; do
+        php /var/www/html/artisan uploads:prune-chunks || echo '[lsky] 分片清理失败，下个小时重试'
+    done
+) &
+
 exec "$@"

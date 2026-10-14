@@ -215,7 +215,7 @@ server {
 |---|---|---|
 | `PHP_MEMORY_LIMIT` | `64M` | PHP 内存上限，处理大图/批量操作时可调大（如 `256M`），运行期生效、无需重建镜像 |
 
-`post_max_size` 与 `upload_max_filesize` 均为 **512M**。注意角色组里还有独立的「最大文件大小」限制（默认 51200KB=50MB），按需在后台 → 用户组里调。
+`post_max_size` 为 **544M**，`upload_max_filesize` 为 **512M**。注意角色组里还有独立的「最大文件大小」限制（默认 51200KB=50MB），按需在后台 → 用户组里调。
 
 自签证书不随镜像发放也不进数据卷：每个容器首次启动自动生成。想用自己的证书，把 `.crt` / `.key` 挂载覆盖容器内 `/etc/apache2/ssl/lsky-selfsigned.crt` 与 `.key` 即可。
 
@@ -296,3 +296,7 @@ A: 勾选图片左上角复选框（支持全选），点顶部「批量删除�
 
 - 应用本体：[lsky-org/lsky-pro](https://github.com/lsky-org/lsky-pro)（GPL-3.0）；`src/` 保留上游的 `LICENSE` 与全部署名。
 - Docker 打包：fork 自 [HalcyonAzure/lsky-pro-docker](https://github.com/HalcyonAzure/lsky-pro-docker)（AGPL-3.0），本仓库自身的打包脚本沿用该许可。
+
+## 大文件分片上传
+
+新增50MiB分片、3个并发、失败重试和续传；大图保留原始图片，减少解码内存占用。PHP单文件上限512M，请求体上限544M。部署、清理、验证和R2迁移对接限制见 [分片上传说明](docs/chunk-upload.md)。

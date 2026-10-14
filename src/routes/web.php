@@ -37,6 +37,11 @@ Route::get('/', fn () => auth()->check() ? redirect()->route('images') : view('w
 
 Route::any('install', [Controller::class, 'install'])->name('install');
 Route::post('upload', [Controller::class, 'upload']);
+Route::prefix('upload/chunks')->middleware('throttle:90,1')->group(function () {
+    Route::post('', [\App\Http\Controllers\ChunkUploadController::class, 'begin']);
+    Route::post('{id}/part', [\App\Http\Controllers\ChunkUploadController::class, 'part']);
+    Route::post('{id}/complete', [\App\Http\Controllers\ChunkUploadController::class, 'complete']);
+});
 Route::group(['middleware' => ['auth']], function () {
     Route::get('dashboard', [UserController::class, 'dashboard'])->name('dashboard');
     Route::prefix('settings')->group(function () {

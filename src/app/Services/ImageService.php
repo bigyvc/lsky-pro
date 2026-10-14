@@ -153,8 +153,10 @@ class ImageService
         // 上传频率限制
         $this->rateLimiter($configs, $request);
 
+        // Large files retain their original bytes; avoid decoding huge PNGs before streaming to storage.
+        $safeToProcess = $this->canProcessImage($file);
         // 图片处理，跳过 ico gif
-        if (! in_array($extension, ['ico', 'gif'])) {
+        if ($safeToProcess && ! in_array($extension, ['ico', 'gif'])) {
             // 图片保存质量与格式
             $quality = $configs->get(GroupConfigKey::ImageSaveQuality, 75);
             $format = $configs->get(GroupConfigKey::ImageSaveFormat);
@@ -232,14 +234,15 @@ class ImageService
             $builder->where('strategy_id', $id);
         })->where('md5', $image->md5)->where('sha1', $image->sha1)->first();
         if (is_null($existing)) {
-            $handle = fopen($file, 'r');
+            $handle = fopen($file->getRealPath(), 'rb');
             try {
                 $filesystem->writeStream($pathname, $handle);
             } catch (FilesystemException $e) {
                 Utils::e($e, '保存图片时出现异常');
                 throw new UploadException(config('app.debug', false) ? $e->getMessage() : '图片上传失败');
+            } finally {
+                if (is_resource($handle)) fclose($handle);
             }
-            if (is_resource($handle)) @fclose($handle);
         } else {
             $image->fill($existing->only('path', 'name'));
         }
@@ -289,7 +292,7 @@ class ImageService
             }
         }
 
-        $this->makeThumbnail($image, $file);
+        if ($safeToProcess) $this->makeThumbnail($image, $file);
 
         // 上传完成后删除临时文件
         unlink($file->getPathname());
@@ -571,6 +574,15 @@ class ImageService
      * 尝试将 memory_limit 放宽到 512M。只升不降：若当前限制已更高
      * （如用户通过 PHP_MEMORY_LIMIT 手动调高）或为 -1（不限制）则不动。
      */
+    protected function canProcessImage(UploadedFile $file): bool
+    {
+        if ($file->getSize() > 50 * 1024 * 1024) return false;
+        $dimensions = @getimagesize($file->getRealPath());
+        // Use a conservative 16 bytes/pixel budget for decode buffers and transformations.
+        return $dimensions && $dimensions[0] > 0 && $dimensions[1] > 0
+            && $dimensions[0] * $dimensions[1] * 16 <= 128 * 1024 * 1024;
+    }
+
     protected function raiseMemoryLimitForImageProcessing(): void
     {
         $limit = strtolower(trim((string) ini_get('memory_limit')));

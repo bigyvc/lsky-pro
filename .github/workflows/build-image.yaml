@@ -308,6 +308,9 @@ jobs:
           npm ci --no-audit --no-fund
           npm test
 
+      - name: Verify disk-backed upload assembly
+        run: php -d memory_limit=16M test/php/chunk-store.php
+
       # 说明（本次「Node 20 弃用」清扫的覆盖面）：下面 docker/* 系列与上面的 actions/checkout
       # 都核对过 —— 它们钉的 commit SHA 就是各自**最新 release** 指向的 commit，且 action.yml 里
       # 是 runs.using: node24，不会再触发 Node.js 20 弃用警告，故保持不变（不为动而动）。
@@ -574,11 +577,11 @@ jobs:
             echo "::error::PHP memory_limit 不是 64M（读到：$(cat /tmp/php-memlimit.txt 2>/dev/null)）—— 检查 zz-lsky-hardening.ini 与 entrypoint 的 PHP_MEMORY_LIMIT 渲染"
             exit 1
           fi
-          # ② post_max_size 与 upload_max_filesize 必须都是 512M（2026-10-05 指定）
+          # ② post_max_size=544M（包含表单开销），upload_max_filesize=512M（2026-10-05 指定）
           docker exec lsky-smoke sh -c 'php -r "echo ini_get(\"post_max_size\");"' > /tmp/php-postmax.txt 2>&1 || true
           echo "容器里 post_max_size 生效值：$(cat /tmp/php-postmax.txt 2>/dev/null)"
-          if [ "$(cat /tmp/php-postmax.txt 2>/dev/null)" != "512M" ]; then
-            echo "::error::PHP post_max_size 不是 512M（读到：$(cat /tmp/php-postmax.txt 2>/dev/null)）—— 检查 docker-php-upload.ini"
+          if [ "$(cat /tmp/php-postmax.txt 2>/dev/null)" != "544M" ]; then
+            echo "::error::PHP post_max_size 不是 544M（读到：$(cat /tmp/php-postmax.txt 2>/dev/null)）—— 检查 docker-php-upload.ini"
             exit 1
           fi
           docker exec lsky-smoke sh -c 'php -r "echo ini_get(\"upload_max_filesize\");"' > /tmp/php-uploadmax.txt 2>&1 || true
