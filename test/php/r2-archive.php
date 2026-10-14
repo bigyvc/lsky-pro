@@ -80,6 +80,16 @@ $bytes=filesize($bigPath);
 $big=App\Models\Image::unguarded(fn()=>App\Models\Image::create(['strategy_id'=>$r2->id,'group_id'=>$group->id,'path'=>'1','name'=>'big.png','origin_name'=>'big.png','size'=>$bytes/1024,'md5'=>md5_file($bigPath),'sha1'=>sha1_file($bigPath),'extension'=>'png','mimetype'=>'image/png','width'=>1,'height'=>1,'permission'=>1,'uploaded_ip'=>'127.0.0.1']));
 $service->run();$bigJob=App\Models\R2ArchiveJob::where('image_id',$big->id)->first();
 check($bigJob?->phase==='done'&&$dst->fileSize($bigJob->target_path)===$bytes&&abs($big->fresh()->size-$bytes/1024)<0.01,'350MiB original migrated with unchanged bytes under 64MiB PHP memory');
+$policy->refresh()->update(['trigger_bytes'=>250,'target_bytes'=>0,'requested'=>false]);
+$cycleA=imageAt('cycle-a.png',str_repeat('c',100));$cycleB=imageAt('cycle-b.png',str_repeat('d',100));$cycleC=imageAt('cycle-c.png',str_repeat('e',100));
+$gateway->extra=17;
+$service->run(true,1);check(!$policy->fresh()->requested,'dry run does not start a drain cycle');
+$service->run(false,1);check($policy->fresh()->requested&&$gateway->bucketBytes()===217,'threshold starts a persistent drain across batch limits');
+$service->run(false,1);check($policy->fresh()->requested&&$gateway->bucketBytes()===117,'drain continues below the trigger on the next run');
+$service->run(false,1);check(!$policy->fresh()->requested&&$gateway->bucketBytes()===17,'drain completes after all managed images migrate and preserves unrelated objects');
+$afterCycle=$gateway->deletes;$new=imageAt('next-cycle.png','new');$service->run(false,1);
+check($gateway->deletes===$afterCycle&&$new->fresh()->strategy_id===$r2->id,'new images stay in R2 until the next threshold');
+$policy->update(['enabled'=>false]);$gateway->extra=0;
 class OutputImage extends App\Models\Image {public static League\Flysystem\Filesystem $disk;public function filesystem():League\Flysystem\Filesystem{return self::$disk;}}
 OutputImage::$disk=$dst;$outputImage=new OutputImage();$outputImage->forceFill($first->fresh()->getAttributes());
 $request=Illuminate\Http\Request::create('/original','GET',[],[],[],['HTTP_RANGE'=>'bytes=3-8']);

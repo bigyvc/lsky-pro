@@ -13,7 +13,7 @@ use RuntimeException;
 class ConfigureR2Archive extends Command
 {
     protected $signature='r2:archive-config {--list} {--source=} {--target=} {--enable} {--disable} {--links-ready}
-        {--trigger=9500000000} {--retain=8500000000}';
+        {--trigger=9500000000} {--retain=0}';
     protected $description='列出策略或配置 R2 -> 自建 TG 归档（不输出任何密钥）';
     public function handle(): int
     {
@@ -28,8 +28,9 @@ class ConfigureR2Archive extends Command
             $identity=R2ArchiveQuota::identity($source);
             $existing=R2ArchivePolicy::where('source_identity',$identity)->first();
             if ($existing && $existing->source_strategy_id !== $source->id) throw new RuntimeException('同一个 R2 桶已经配置归档');
+            if (!ctype_digit((string)$this->option('trigger')) || !ctype_digit((string)$this->option('retain'))) throw new RuntimeException('容量必须是非负整数');
             $trigger=(int)$this->option('trigger'); $retain=(int)$this->option('retain');
-            if ($retain < 1 || $retain >= $trigger || $trigger > 9500000000) throw new RuntimeException('阈值必须不超过9.5GB，归档后目标容量必须小于阈值');
+            if ($retain < 0 || $trigger < 1 || $retain >= $trigger || $trigger > 9500000000) throw new RuntimeException('阈值必须不超过9.5GB，归档后目标容量必须小于阈值');
             $ready=(bool)($existing?->links_ready);
             if ($this->option('links-ready')) {
                 $url=rtrim((string)$source->configs->get('url'), '/').'/.__lsky_archive_probe';
@@ -57,7 +58,7 @@ class ConfigureR2Archive extends Command
             }
             if ($existing && ($existing->target_identity !== $policy->target_identity || $existing->target_strategy_id !== $target->id)) throw new RuntimeException('已有归档策略不能换 Bot 或目标频道，请保留原目标');
             R2ArchivePolicy::updateOrCreate(['source_strategy_id'=>$source->id], $policy->getAttributes());
-            $this->info('归档配置已保存；触发9.5GB，迁移到8.5GB。'); return 0;
+            $this->info('归档配置已保存；触发容量 '.$trigger.' 字节；'.($retain === 0 ? '每轮持续归档至全部图床图片迁出 R2。' : '归档至 '.$retain.' 字节。')); return 0;
         } catch (\Throwable $e) { $this->error($e instanceof RuntimeException ? $e->getMessage() : '配置失败，请检查策略 ID 和数据库迁移'); return 1; }
     }
 }

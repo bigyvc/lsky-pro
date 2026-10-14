@@ -160,6 +160,8 @@ class R2ArchiveService
                 }
                 $used = $this->gateway($source)->bucketBytes();
                 if ($used + $pending >= $policy->trigger_bytes || $policy->requested) {
+                    // Persist the cycle across process limits and restarts, even below the trigger.
+                    $policy->update(['requested'=>true]);
                     $images = Image::whereIn('strategy_id', $this->sourceIds($policy->source_identity))->orderBy('id')->cursor();
                     foreach ($images as $image) {
                         if ($attempts >= $limit || $used + $pending <= $policy->target_bytes) break;
@@ -179,7 +181,13 @@ class R2ArchiveService
                         catch (\Throwable) { $job->update(['error'=>'归档未完成，保留未删除的源文件；请检查 TG 服务、磁盘与权限']); $report['failed']++; }
                         $used = $this->gateway($source)->bucketBytes();
                     }
-                    if ($used + $pending <= $policy->target_bytes) $policy->update(['requested'=>false]);
+                    // Zero means drain managed images; unrelated bucket objects must remain untouched.
+                    $complete = $policy->target_bytes === 0
+                        ? $pending === 0
+                            && !Image::whereIn('strategy_id', $this->sourceIds($policy->source_identity))->exists()
+                            && !R2ArchiveJob::where('policy_id', $policy->id)->whereNotIn('phase', ['done','cancelled'])->exists()
+                        : $used + $pending <= $policy->target_bytes;
+                    if ($complete) $policy->update(['requested'=>false]);
                 }
                 $report['used_after']=$used; $reports[]=$report;
             }
