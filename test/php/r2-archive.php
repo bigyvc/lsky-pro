@@ -8,6 +8,15 @@ foreach(['framework/cache/data','framework/sessions','framework/views','logs','a
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 config(['database.default'=>'sqlite','database.connections.sqlite.database'=>':memory:','cache.default'=>'array','session.driver'=>'array']);
 Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
+// Simulate an installed 13-migration database, then apply only the new additive migration.
+Illuminate\Support\Facades\Schema::drop('r2_archive_jobs');Illuminate\Support\Facades\Schema::drop('r2_archive_policies');
+Illuminate\Support\Facades\DB::table('migrations')->where('migration','2026_10_14_120000_create_r2_archive_tables')->delete();
+Illuminate\Support\Facades\DB::table('groups')->insert(['name'=>'migration-sentinel','configs'=>'{}','is_guest'=>false]);
+$sentinelBefore=json_encode(Illuminate\Support\Facades\DB::table('groups')->where('name','migration-sentinel')->first());
+Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
+$sentinelAfter=json_encode(Illuminate\Support\Facades\DB::table('groups')->where('name','migration-sentinel')->first());
+if ($sentinelBefore!==$sentinelAfter || Illuminate\Support\Facades\DB::table('migrations')->count()!==14) throw new Exception('additive upgrade changed existing data');
+echo "PASS upgrade from 13 migrations adds archival tables without modifying existing rows\n";
 set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
 function check($yes,$label){if(!$yes)throw new Exception($label);echo "PASS $label\n";}
 mkdir($work.'/r2');mkdir($work.'/tg');

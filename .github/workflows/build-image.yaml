@@ -90,13 +90,14 @@ env:
   # 于是镜像明明是对的（构建期 md5sum -c 已断言过），却被这一步判成失败。
   # 上游快照里的数据库迁移文件个数。换 pin 时若这个数变了，说明有 schema 变更，
   # 而 entrypoint 不会自动跑 migrate —— 那种情况必须人工处理，所以在 CI 里钉住提醒。
-  # 13 = 上游 pin 快照自带的 10 + 本 fork 新增的 3 个（都是只建新表、不动原表）：
+  # 14 = 上游 pin 快照自带的 10 + 本 fork 新增的 4 个（都是只建新表、不动原表）：
   #   2026-10-01 标签功能：2026_10_01_000001_create_tags_table /
   #                        2026_10_01_000002_create_image_tag_table
   #   2026-10-12 Telegram 存储策略：2026_10_12_200000_create_telegram_files_table
   #     （path→file_id/message_id 映射表；不用 Telegram 策略时建空表、无影响）
-  # 这三条同样要人工 migrate —— 线上升级流程里「起新镜像后立刻 php artisan migrate --force」。
-  UPSTREAM_MIGRATION_COUNT: "13"
+  #   2026-10-14 R2 归档策略/迁移记录：2026_10_14_120000_create_r2_archive_tables
+  # 已安装的标准站点由entrypoint备份SQLite后自动补表；未安装/非标准数据库跳过。
+  UPSTREAM_MIGRATION_COUNT: "14"
   # 「真升级用例」（tools/upgrade-test.sh）的升级基线：**不再写死**，由脚本向 GHCR 匿名 API
   # 现查「最新的 sha-<commit> tag，且 ≠ 本次构建的 commit」当基线。
   # 为什么改（原来的写法确实会红）：这里曾硬编码 sha-cd14a3b9…，那个 tag 一旦从 GHCR 消失
@@ -272,7 +273,7 @@ jobs:
           N=$(ls src/database/migrations/*.php 2>/dev/null | wc -l | tr -d ' ')
           echo "上游迁移文件数 = $N（基线 ${UPSTREAM_MIGRATION_COUNT}）"
           if [ "$N" != "${UPSTREAM_MIGRATION_COUNT}" ]; then
-            echo "::error::上游迁移文件数从 ${UPSTREAM_MIGRATION_COUNT} 变成 $N —— entrypoint 不会自动 migrate，必须人工处理"
+            echo "::error::应用迁移文件数从 ${UPSTREAM_MIGRATION_COUNT} 变成 $N —— 请审查 schema 变更并同步迁移基线"
             exit 1
           fi
 
