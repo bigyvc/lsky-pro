@@ -328,12 +328,24 @@ RUN printf '%s\n' \
 #   · max_input_time 默认 60 → **600**（2026-10-14 追加：解析请求体的时间上限，大文件从慢速网络
 #     上传时 60 秒不够会被截断；与 max_execution_time=600 对齐）
 #   · max_execution_time 维持原来的 **600S 不动**（2026-10-05 定：不要改成 300；CLI 下 ini_get 恒为 0，只有 Web 侧吃这个值）
-RUN apt-get update && \
-    apt-get install -y gettext && \
-    apt-get clean && rm -rf /var/cache/apt/* && rm -rf /var/lib/apt/lists/* && rm -rf /tmp/*  && \
-    a2enmod rewrite && chmod +x /usr/local/bin/install-php-extensions && \
-    install-php-extensions imagick bcmath pdo_mysql pdo_pgsql redis ftp && \
-    \
+# Extension download failures must never silently skip the upload configuration.
+# Retry transient PECL archive failures, clearing partial downloads before retrying.
+RUN set -eu; \
+    apt-get update; \
+    apt-get install -y gettext; \
+    apt-get clean; \
+    rm -rf /var/cache/apt/* /var/lib/apt/lists/* /tmp/*; \
+    a2enmod rewrite; \
+    chmod +x /usr/local/bin/install-php-extensions; \
+    for attempt in 1 2 3; do \
+        if install-php-extensions imagick bcmath pdo_mysql pdo_pgsql redis ftp; then break; fi; \
+        if [ "$attempt" -eq 3 ]; then echo 'PHP extension installation failed after 3 attempts' >&2; exit 1; fi; \
+        rm -rf /tmp/pear/download; \
+        sleep 5; \
+    done; \
+    php -r 'foreach (["imagick", "bcmath", "pdo_mysql", "pdo_pgsql", "redis", "ftp"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing PHP extension: ".$extension.PHP_EOL); exit(1); } }'
+
+RUN set -eu; \
     { \
     echo 'post_max_size = 544M;';\
     echo 'upload_max_filesize = 512M;';\
