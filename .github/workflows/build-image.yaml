@@ -309,6 +309,9 @@ jobs:
           npm ci --no-audit --no-fund
           npm test
 
+      - name: Verify Telegram cache eviction safety
+        run: python3 test/telegram-cache-cleaner.test.py
+
       - name: Verify disk-backed upload assembly
         run: php -d memory_limit=16M test/php/chunk-store.php
 

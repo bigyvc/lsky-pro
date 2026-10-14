@@ -17,6 +17,7 @@
 9. [备份与恢复](#9-备份与恢复)
 10. [故障排查](#10-故障排查)
 11. [实现与验证范围](#11-实现与验证范围)
+12. [自动清理 TG 下载缓存](#12-自动清理-tg-下载缓存)
 
 ## 1. 工作方式与限制
 
@@ -37,7 +38,7 @@
 
 “全部归档”指**图床数据库登记并由这些 R2 策略管理的图片**。未登记对象不会迁移或删除，空桶目标因此可能仍有其他文件。损坏、无法校验或超出本项目大小上限的图片不会强制删除，可能阻止这一轮完成。
 
-归档会占用服务器的网络、暂存空间和 Bot API 下载缓存。每次复制前检查临时目录和 TG 共享目录，要求至少 `2 × 文件大小 + 512MiB` 空闲空间。**当前没有自动清理 TG 下载缓存的功能**；需定期检查磁盘，不要随意删除 TDLib 数据目录。TG 图片访问经过图床服务器，不保证具有 R2 直连的速度。
+归档会占用服务器的网络、暂存空间和 Bot API 下载缓存。每次复制前检查临时目录和 TG 共享目录，要求至少 `2 × 文件大小 + 512MiB` 空闲空间。可按本文第12节安装自动清理服务：仅清理登记的已完成下载缓存，保留 TDLib 状态及活跃文件。仍需定期检查磁盘，不要随意删除 TDLib 数据目录。TG 图片访问经过图床服务器，不保证具有 R2 直连的速度。
 
 ## 2. 部署前确认
 
@@ -400,3 +401,68 @@ docker compose -p "$LSKY_PROJECT" -f "$LSKY_BASE" -f "$LSKY_EXTRA" up -d --no-de
 - [Telegram getFile](https://core.telegram.org/bots/api#getfile)
 - [Telegram sendDocument](https://core.telegram.org/bots/api#senddocument)
 - [Cloudflare Worker Routes](https://developers.cloudflare.com/workers/configuration/routing/routes/)
+
+## 12. 自动清理 TG 下载缓存
+
+本功能分为图床端的缓存登记/读取锁/缺失重下载，以及宿主机 systemd 清理服务。需要先更新到包含 `TelegramCacheRegistry` 的镜像，再安装宿主机服务。无需把图床的 TG 共享挂载改成可写，仍保留只读挂载。
+
+### 默认策略
+
+| 设置 | 默认值 | 含义 |
+|---|---|---|
+| 检查间隔 | 每5分钟，随机延迟最多30秒 | systemd timer |
+| `TG_CACHE_TTL` | 3600秒 | 超过1小时未访问的登记缓存可删除 |
+| `TG_CACHE_MAX_BYTES` | 2147483648（2GiB） | 登记缓存超过此容量，优先清理最久未访问的文件 |
+| `TG_CACHE_MIN_FREE` | 2147483648（2GiB） | 所在文件系统空闲不足此值时提前清理旧缓存 |
+| `TG_CACHE_MIN_AGE` | 300秒 | 即使容量紧张，也保留最近5分钟访问的文件 |
+
+缓存上限与空闲空间是清理目标，不是硬性容量保证：正在读取、最近访问的文件、未登记文件和其他程序占用都可能导致暂时超过目标。不会因此删除正在使用的文件或频道消息。
+
+### 安装
+
+先确认新镜像构建成功并按第3节带两份 Compose 更新图床。下载同一版本的两个脚本，下面用 master；生产环境可把 master 替换为已验证的提交 SHA：
+
+```bash
+mkdir -p /opt/lsky/archive-setup/tools
+curl -fL --retry 3 https://raw.githubusercontent.com/bigyvc/lsky-pro/master/tools/telegram-cache-cleaner.py \
+  -o /opt/lsky/archive-setup/tools/telegram-cache-cleaner.py &&
+curl -fL --retry 3 https://raw.githubusercontent.com/bigyvc/lsky-pro/master/tools/install-telegram-cache-cleaner.sh \
+  -o /opt/lsky/archive-setup/tools/install-telegram-cache-cleaner.sh &&
+bash /opt/lsky/archive-setup/tools/install-telegram-cache-cleaner.sh lsky-pro
+```
+
+安装助手只读取容器挂载元数据，确认图床和 TG 目录为 bind mount，从实际挂载解析宿主机目录；不猜数据路径、不输出凭据、不重建容器。确认新应用类已部署后，以 www-data 创建私有登记目录。启用 `lsky-telegram-cache.timer`，末尾执行只读预览。
+
+参数保存在 `/etc/default/lsky-telegram-cache`。修改后下一轮执行生效：
+
+```bash
+nano /etc/default/lsky-telegram-cache
+systemctl list-timers lsky-telegram-cache.timer
+journalctl -u lsky-telegram-cache.service --since '1 hour ago' --no-pager
+# 手动执行一次真实清理。
+systemctl start lsky-telegram-cache.service
+# 暂停宿主机自动清理；TG 自身的文件回收仍可能发生。
+systemctl disable --now lsky-telegram-cache.timer
+```
+
+日志只输出登记数、清理数、释放字节和 busy 状态，不输出含 Bot 身份的文件路径。默认路径部署的只读预览：
+
+```bash
+python3 /usr/local/libexec/lsky-telegram-cache-cleaner.py --dry-run
+```
+
+其他挂载路径应使用 systemd service 中解析出的 `--registry`、`--data` 参数，不直接照抄默认路径。
+
+### 清理边界与重新下载
+
+- 只处理图床通过 getFile 读取并登记的完整媒体文件，且父目录在 documents/photos/videos 等白名单内。不会扫描并删除整个 TG 工作目录。
+- 不删除 TDLib 数据库、登录会话、根目录文件、temp、未登记上传文件、频道消息、telegram_files 或归档记录；也不跟随符号链接。
+- 文件的设备号、inode、长度和修改时间必须与登记时一致，防止误删被替换的文件。
+- 图床获取路径时持有共享协调锁；读取流持有文件共享锁直到关闭。清理器使用排他锁，遇到活跃读取或 getFile 请求时跳过。
+- 清理后再次访问图片，图床发现本地文件缺失，会清除旧路径缓存并重新请求 getFile，取回原图。首次访问可能较慢。
+- 该机制不保证恢复所有历史未登记缓存。旧文件以后被图床正常读取时才登记；不要使用递归删除整个目录来处理历史文件。
+- TG API 自身也会回收下载文件，其时间不可配置。图床的缺失重下载同样覆盖这种情况。
+
+自动测试覆盖活跃流锁、重新下载、TTL/容量压力、最近访问保护、只读预览、未登记文件/数据库保留、目录越界与文件替换。真实 API 缓存布局和服务权限需部署后验证。
+
+依据：[Telegram Bot API 维护者对本地文件清理的说明](https://github.com/tdlib/telegram-bot-api/issues/303)。维护者允许删除已下载文件，明确要求不操作 temp 与 API 工作目录中的状态文件。

@@ -105,5 +105,20 @@ App\Models\TelegramFile::create(['strategy_id'=>$tg->id,'path'=>'test.png','file
 $handle=$adapter->readStream('test.png');check(stream_get_contents($handle)===str_repeat('a',100),'local Bot API absolute path opens through shared read-only directory');fclose($handle);
 App\Models\TelegramFile::create(['strategy_id'=>$tg->id,'path'=>'bad.png','file_id'=>'outside-file','message_id'=>2,'size'=>1]);$adapter->filePath=__FILE__;
 try{$adapter->readStream('bad.png');throw new Exception('directory escape allowed');}catch(League\Flysystem\UnableToReadFile $e){check(!str_contains($e->getMessage(),'TEST_TOKEN'),'local API cannot read paths outside configured root');}
+class RenewTelegram extends App\Filesystem\TelegramAdapter {
+ public string $filePath; public string $remotePath; public int $calls=0;
+ protected function callApi(string $method,array $options=[]):array {
+  $this->calls++; copy($this->remotePath,$this->filePath); return ['file_path'=>$this->filePath];
+ }
+}
+mkdir($work.'/tg/123/documents',0700,true);file_put_contents($work.'/remote-copy','cache-original');
+App\Models\TelegramFile::create(['strategy_id'=>$tg->id,'path'=>'cache.png','file_id'=>'cache-renew-file','message_id'=>3,'size'=>14]);
+$renew=new RenewTelegram('TEST_TOKEN','-100001',$tg->id,'http://telegram-bot-api:8081',1200,$work.'/tg');
+$renew->filePath=$work.'/tg/123/documents/file_3.png';$renew->remotePath=$work.'/remote-copy';
+$handle=$renew->readStream('cache.png');
+$other=fopen($renew->filePath,'rb');check(!flock($other,LOCK_EX|LOCK_NB),'active TG stream holds shared file lock against cleanup');fclose($other);
+check(count(glob($work.'/storage/app/tg-cache/*.json'))===1,'only completed getFile media downloads are registered');fclose($handle);
+unlink($renew->filePath);$handle=$renew->readStream('cache.png');
+check(stream_get_contents($handle)==='cache-original'&&$renew->calls===2,'removed local cache invalidates cached path and re-downloads via getFile');fclose($handle);
 check(memory_get_peak_usage(true)<64*1024*1024,'migration and streaming stay within configured memory limit');
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);

@@ -150,15 +150,29 @@ class TelegramAdapter implements FilesystemAdapter
             throw UnableToReadFile::fromLocation($path, '文件不存在');
         }
 
+        $cacheLock = null;
         try {
+            // Hold until a shared-locked stream is open; host cleanup takes the exclusive lock.
+            if ($this->localRoot !== '') $cacheLock = \App\Services\TelegramCacheRegistry::lock();
             $filePath = $this->resolveFilePath($record->file_id);
             if (str_starts_with($filePath, '/')) {
                 $root = realpath($this->localRoot);
+                clearstatcache(true, $filePath);
                 $file = realpath($filePath);
+                if (!$file || !is_file($file)) {
+                    // Native or host cleanup may invalidate the 50-minute path cache.
+                    Cache::forget($this->filePathCacheKey($record->file_id));
+                    $filePath = $this->resolveFilePath($record->file_id);
+                    clearstatcache(true, $filePath);
+                    $file = realpath($filePath);
+                }
                 if (!$root || $root === '/' || !$file || !str_starts_with($file, rtrim($root, '/').'/')
                     || !is_file($file) || !is_readable($file)) throw new RuntimeException('TG 本地文件不在配置的可读共享目录内');
                 $stream = fopen($file, 'rb');
                 if (!$stream) throw new RuntimeException('无法打开 TG 本地文件');
+                if (!flock($stream, LOCK_SH)) { fclose($stream); throw new RuntimeException('无法锁定 TG 本地文件'); }
+                try { \App\Services\TelegramCacheRegistry::register($root, $file); }
+                catch (Throwable $e) { fclose($stream); throw $e; }
                 return $stream;
             }
             $response = $this->http->get($this->fileUrl($filePath), ['stream' => true]);
@@ -166,6 +180,8 @@ class TelegramAdapter implements FilesystemAdapter
             return $response->getBody()->detach();
         } catch (Throwable $e) {
             throw UnableToReadFile::fromLocation($path, str_replace($this->botToken, '[redacted]', $e->getMessage()));
+        } finally {
+            if (is_resource($cacheLock)) { flock($cacheLock, LOCK_UN); fclose($cacheLock); }
         }
     }
 
@@ -325,7 +341,7 @@ class TelegramAdapter implements FilesystemAdapter
      */
     protected function resolveFilePath(string $fileId): string
     {
-        $cacheKey = 'telegram_file_path:' . hash('sha256', $this->strategyId.'|'.$this->apiBase.'|'.$this->botToken.'|'.$fileId);
+        $cacheKey = $this->filePathCacheKey($fileId);
         $filePath = Cache::get($cacheKey);
         if (! $filePath) {
             try {
@@ -341,6 +357,11 @@ class TelegramAdapter implements FilesystemAdapter
         }
 
         return $filePath;
+    }
+
+    protected function filePathCacheKey(string $fileId): string
+    {
+        return 'telegram_file_path:' . hash('sha256', $this->strategyId.'|'.$this->apiBase.'|'.$this->botToken.'|'.$fileId);
     }
 
     protected function fileUrl(string $filePath): string
