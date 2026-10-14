@@ -152,6 +152,32 @@ class R2DirectUpload
             'received' => $received, 'parts' => (object) $signatures, 'uploaded' => $meta['phase'] !== 'uploading', 'result' => null];
     }
 
+    private function availableKey(Strategy $strategy, string $preferred): string
+    {
+        $identity = $this->identity($strategy);
+        $reserved = [];
+        // Include other administrators and expired tasks until pruning has aborted them remotely.
+        foreach (glob($this->root().'/*/*/meta.json') ?: [] as $path) {
+            $meta = json_decode((string) file_get_contents($path), true);
+            if (($meta['storage_identity'] ?? '') === $identity && ($meta['phase'] ?? '') !== 'aborted') {
+                $reserved[$meta['key']] = true;
+            }
+        }
+        $strategyIds = Strategy::all()->filter(fn ($s) => $this->identity($s) === $identity)->modelKeys();
+        $gateway = $this->gateway($strategy);
+        $extension = pathinfo($preferred, PATHINFO_EXTENSION);
+        $stem = substr($preferred, 0, -strlen($extension) - 1);
+        for ($attempt = 0; $attempt < 100; $attempt++) {
+            $key = $attempt === 0 ? $preferred : $stem.'-'.bin2hex(random_bytes(3)).'.'.$extension;
+            if (isset($reserved[$key])) continue;
+            if (Image::query()->whereIn('strategy_id', $strategyIds)
+                ->where('path', dirname($key) === '.' ? '' : dirname($key))->where('name', basename($key))->exists()) continue;
+            if ($gateway->find($key) !== null) continue;
+            return $key;
+        }
+        throw new UploadException('无法分配未重名的文件名，请稍后重试');
+    }
+
     public function begin(Request $request, array $file, int $strategyId, ?string $id): array
     {
         $strategy = $this->access($request, $strategyId, $file);
@@ -186,9 +212,14 @@ class R2DirectUpload
             $id = bin2hex(random_bytes(16));
             $dir = $this->directory($user->id, $id);
             $this->mkdir($dir);
-            $meta = ['user_id' => $user->id, 'file' => $file, 'storage_identity' => $this->identity($strategy),
-                'key' => $this->images->directPathname($user->group, $file['name'], $id), 'phase' => 'creating'];
-            $this->save($dir, $meta);
+            $preferred = $this->images->directPathname($user->group, $file['name']);
+            // Reserve under a bucket-wide local lock before releasing it to the next initializer.
+            $meta = $this->lock($this->root().'/.names.lock', function () use ($user, $file, $strategy, $preferred, $dir) {
+                $meta = ['user_id' => $user->id, 'file' => $file, 'storage_identity' => $this->identity($strategy),
+                    'key' => $this->availableKey($strategy, $preferred), 'phase' => 'creating'];
+                $this->save($dir, $meta);
+                return $meta;
+            });
             return $this->lock($dir.'/.lock', function () use ($dir, $meta, $strategy, $id) {
                 try { $meta['upload_id'] = $this->gateway($strategy)->start($meta['key'], $this->mime($meta['file']['name']), $id); }
                 catch (\Throwable $e) {
@@ -238,9 +269,12 @@ class R2DirectUpload
             if ($meta['phase'] === 'creating') throw new UploadException('R2 任务创建结果未知，请取消任务后重试');
             if ($meta['phase'] === 'uploading' || $meta['phase'] === 'completing') {
                 // Recover a lost CompleteMultipartUpload response without uploading the file a second time.
-                $head = null;
-                if ($meta['phase'] === 'completing') {
-                    try { $head = $gateway->head($meta['key']); } catch (\Throwable) {}
+                $head = $gateway->find($meta['key']);
+                if ($head && ! $this->objectValid($head, $meta, $id)) {
+                    // An external writer used the reserved name. Never overwrite or delete its object.
+                    $gateway->abort($meta['key'], $meta['upload_id']);
+                    $meta['phase'] = 'aborted'; $this->save($dir, $meta);
+                    throw new UploadException('文件名已被其他上传占用，请重新上传以自动分配短编号');
                 }
                 if (! $head || ! $this->objectValid($head, $meta, $id)) {
                     $parts = $this->checkedParts($meta, $gateway);
@@ -275,13 +309,13 @@ class R2DirectUpload
     {
         $this->task($request, $id, function ($dir, $meta, $strategy, $gateway) {
             if (isset($meta['result'])) return;
-            $this->discard($meta, $gateway);
+            $this->discard($meta, $gateway, basename($dir));
             $meta['phase'] = 'aborted';
             $this->save($dir, $meta);
         });
     }
 
-    private function discard(array $meta, R2UploadGateway $gateway): void
+    private function discard(array $meta, R2UploadGateway $gateway, string $id): void
     {
         // Protect a committed image when PHP died between DB commit and saving the cached result.
         if (Image::query()->where('strategy_id', $meta['file']['strategy_id'])
@@ -290,7 +324,10 @@ class R2DirectUpload
             try { $gateway->abort($meta['key'], $meta['upload_id']); }
             catch (\Aws\S3\Exception\S3Exception $e) { if ($e->getAwsErrorCode() !== 'NoSuchUpload') throw $e; }
         }
-        if (in_array($meta['phase'], ['completing', 'object'])) $gateway->delete($meta['key']);
+        if (in_array($meta['phase'], ['completing', 'object'])) {
+            $head = $gateway->find($meta['key']);
+            if ($head && ($head['Metadata']['lsky-direct-id'] ?? '') === $id) $gateway->delete($meta['key']);
+        }
     }
 
     public function prune(): void
@@ -303,7 +340,7 @@ class R2DirectUpload
                 if (! isset($meta['result']) && ($meta['phase'] ?? '') !== 'aborted') {
                     $strategy = Strategy::find($meta['file']['strategy_id']);
                     if (! $strategy || $this->identity($strategy) !== $meta['storage_identity']) return;
-                    try { $this->discard($meta, $this->gateway($strategy)); }
+                    try { $this->discard($meta, $this->gateway($strategy), basename($dir)); }
                     catch (\Throwable $e) { Utils::e($e, '过期 R2 直传任务清理失败'); return; }
                 }
                 @unlink($path);

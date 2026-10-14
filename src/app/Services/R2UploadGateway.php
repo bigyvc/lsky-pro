@@ -65,6 +65,16 @@ class R2UploadGateway
         return $this->client->headObject(['Bucket' => $this->bucket, 'Key' => $key])->toArray();
     }
 
+    /** Only an actual 404 means a free name; authentication/network errors must fail closed. */
+    public function find(string $key): ?array
+    {
+        try { return $this->head($key); }
+        catch (\Aws\S3\Exception\S3Exception $e) {
+            if ($e->getStatusCode() === 404) return null;
+            throw $e;
+        }
+    }
+
     public function header(string $key): string
     {
         $body = $this->client->getObject(['Bucket' => $this->bucket, 'Key' => $key, 'Range' => 'bytes=0-65535'])['Body'];

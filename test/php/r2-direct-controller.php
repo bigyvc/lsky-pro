@@ -19,6 +19,7 @@ class FakeR2 extends App\Services\R2UploadGateway {
  public function parts(string $key,string $id):array{return $this->uploads[$id]['parts'];}
  public function complete(string $key,string $id,array $parts):void{$this->completions++;$u=$this->uploads[$id];$this->objects[$key]=['ContentLength'=>array_sum(array_column($parts,'Size')),'Metadata'=>['lsky-direct-id'=>$u['id']]];unset($this->uploads[$id]);if($this->lostResponse){$this->lostResponse=false;throw new RuntimeException('lost remote response');}}
  public function head(string $key):array{if(!isset($this->objects[$key]))throw new RuntimeException('not found');return $this->objects[$key];}
+ public function find(string $key):?array{return $this->objects[$key]??null;}
  public function header(string $key):string{$this->headers++;return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==');}
  public function abort(string $key,string $id):void{$this->aborts++;unset($this->uploads[$id]);}
  public function delete(string $key):void{$this->deletes++;unset($this->objects[$key]);}
@@ -29,6 +30,7 @@ class TestDirect extends App\Services\R2DirectUpload {
  protected function gateway(App\Models\Strategy $strategy):App\Services\R2UploadGateway{return $this->remote;}
 }
 $group=App\Models\Group::create(['name'=>'Admin','configs'=>array_merge(config('convention.group'),[
+ App\Enums\GroupConfigKey::PathNamingRule=>'{uid}',App\Enums\GroupConfigKey::FileNamingRule=>'{filename}',
  App\Enums\GroupConfigKey::MaximumFileSize=>524288,App\Enums\GroupConfigKey::ImageSaveQuality=>100,
  App\Enums\GroupConfigKey::IsEnableWatermark=>false,App\Enums\GroupConfigKey::IsEnableScan=>false,
 ])]);
@@ -53,7 +55,13 @@ $images=$app->make(App\Services\ImageService::class);$remote=new FakeR2();$servi
 $first=body($controller->begin(requestFor($metadata),$service));check($first['status'],'administrator starts R2 upload');$id=$first['data']['id'];
 check(count((array)$first['data']['parts'])===8&&$first['data']['concurrency']===6,'eight signed 50MiB parts, concurrency six');
 check(!str_contains(json_encode($first),'TEST_SECRET'),'secret not returned');
+check($remote->uploads[array_key_last($remote->uploads)]['key']===$user->id.'/large.png','first upload preserves original filename');
 $again=body($controller->begin(requestFor($metadata),$service));check($again['data']['id']===$id&&$remote->starts===1,'lost init response recovers existing task');
+$collisionMeta=array_merge($metadata,['sha1'=>sha1('different file')]);
+$pending=body($controller->begin(requestFor($collisionMeta),$service));
+$pendingKey=$remote->uploads[array_key_last($remote->uploads)]['key'];
+check($pending['status']&&preg_match('~/large-[a-f0-9]{6}\.png$~',$pendingKey),'in-flight name reservation adds exactly six characters');
+$controller->abort(requestFor(),$service,$pending['data']['id']);
 $bad=body($controller->begin(requestFor(array_merge($metadata,['parts_json'=>'[]'])),$service));check(!$bad['status'],'malformed manifest rejected before remote call');
 $bad=body($controller->begin(requestFor(array_merge($metadata,['strategy_id'=>999])),$service));check(!$bad['status'],'unassigned strategy rejected');
 $user->is_adminer=false;$bad=body($controller->begin(requestFor($metadata),$service));check(!$bad['status'],'non-admin cannot obtain signing capability');$user->is_adminer=true;
@@ -68,6 +76,18 @@ $image=App\Models\Image::first();check($image&&abs($image->size-$size/1024)<0.01
 check(str_contains($image->thumb_url,'static/large-image.svg'),'large original is not downloaded automatically as a thumbnail');
 $repeat=body($controller->complete(requestFor(),$service,$id));check($repeat===$done&&App\Models\Image::count()===1,'duplicate completion creates no extra record');
 $controller->abort(requestFor(),$service,$id);check($remote->deletes===0,'abort cannot delete committed image');
+$collision=body($controller->begin(requestFor($collisionMeta),$service));
+check($collision['status']&&preg_match('~/large-[a-f0-9]{6}\.png$~',$remote->uploads[array_key_last($remote->uploads)]['key']),'registered filename collision adds short suffix');
+$controller->abort(requestFor(),$service,$collision['data']['id']);
+$remote->objects[$user->id.'/external.png']=['ContentLength'=>123,'Metadata'=>[]];
+$external=body($controller->begin(requestFor(array_merge($metadata,['name'=>'external.png'])),$service));
+check($external['status']&&preg_match('~/external-[a-f0-9]{6}\.png$~',$remote->uploads[array_key_last($remote->uploads)]['key']),'remote object without database record is protected');
+$controller->abort(requestFor(),$service,$external['data']['id']);unset($remote->objects[$user->id.'/external.png']);
+$race=body($controller->begin(requestFor(array_merge($metadata,['name'=>'race.png'])),$service));$remote->populate($parts);
+$remote->objects[$user->id.'/race.png']=['ContentLength'=>7,'Metadata'=>[]];
+$blocked=body($controller->complete(requestFor(),$service,$race['data']['id']));
+check(!$blocked['status']&&$remote->objects[$user->id.'/race.png']['ContentLength']===7,'external write after initialization is not overwritten');
+$controller->abort(requestFor(),$service,$race['data']['id']);unset($remote->objects[$user->id.'/race.png']);
 $other=clone $user;$other->id=999;$r=requestFor(['index'=>0]);$r->setUserResolver(fn()=>$other);$denied=body($controller->sign($r,$service,$id)); // validation requires index
 
 check(!$denied['status'],"another administrator cannot sign someone else's task");
@@ -80,6 +100,15 @@ $updated=$group->configs;$updated->put(App\Enums\GroupConfigKey::IsEnableScan,fa
 $abandoned=body($controller->begin(requestFor(array_merge($metadata,['name'=>'abandoned.png'])),$service));check($abandoned['status'],'abandoned upload initialized');
 foreach(glob($work.'/storage/app/r2-direct/*/*/meta.json') as $path){$m=json_decode(file_get_contents($path),true);$m['updated_at']=time()-86401;file_put_contents($path,json_encode($m));}
 $service->prune();check($remote->aborts>0&&count($remote->objects)===1,'expired multipart aborted while committed object retained');
+class FailingHead extends App\Services\R2UploadGateway {
+ public function __construct(public int $status){}
+ public function head(string $key):array {
+  throw new Aws\S3\Exception\S3Exception('head failure',new Aws\Command('HeadObject'),['response'=>new GuzzleHttp\Psr7\Response($this->status)]);
+ }
+}
+check((new FailingHead(404))->find('missing.png')===null,'only remote 404 is treated as an available filename');
+try {(new FailingHead(403))->find('unknown.png');throw new Exception('403 must fail closed');}
+catch(Aws\S3\Exception\S3Exception $e){check($e->getStatusCode()===403,'remote permission error cannot reserve an unchecked filename');}
 // The real SDK signer must bind both part checksum and length without contacting R2.
 $signed=(new App\Services\R2UploadGateway($strategy))->sign('test.png','upload-id',1,50*1024*1024,md5('part'));
 parse_str(parse_url($signed['url'],PHP_URL_QUERY),$query);

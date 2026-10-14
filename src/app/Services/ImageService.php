@@ -699,12 +699,12 @@ class ImageService
         }
     }
 
-    /** Build a collision-resistant direct-upload key using the same configured naming rules. */
-    public function directPathname(Group $group, string $name, string $id): string
+    /** Build the preferred direct-upload key; the task service reserves a free name. */
+    public function directPathname(Group $group, string $name, string $suffix = ''): string
     {
         $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         $rule = $group->configs->get(GroupConfigKey::PathNamingRule).'/'.$group->configs->get(GroupConfigKey::FileNamingRule);
-        return ltrim($this->replacePathname($rule, $name), '/').'-'.$id.'.'.$extension;
+        return ltrim($this->replacePathname($rule, $name), '/').($suffix === '' ? '' : '-'.$suffix).'.'.$extension;
     }
 
     /** Register a verified R2 object; no image bytes are downloaded or uploaded here. */
