@@ -149,6 +149,9 @@ class Controller extends BaseController
             ->where('key', $request->route('key'))
             ->where('extension', strtolower($request->route('extension')))
             ->firstOr(fn() => abort(404));
+        if ($image->strategy?->key === \App\Enums\StrategyKey::Telegram) {
+            return app(\App\Services\ArchivedImageOutput::class)->response($request, $image);
+        }
         if (! $image->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection)) {
             abort(404);
         }

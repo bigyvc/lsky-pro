@@ -28,7 +28,7 @@ use Throwable;
  *    保证图床存的是原图。
  *  - Bot Token 绝不能出现在公开 URL 里：本策略必须配合用户组的「原图保护」
  *    使用（走应用中转输出），不要用作直链策略。
- *  - Bot API 单文件上限 50MB；getFile 拿到的 file_path 缓存 50 分钟，
+ *  - 官方 Bot API 上传上限50MB、下载上限20MB；自建 local API 支持大图和共享目录。getFile 拿到的 file_path 缓存 50 分钟，
  *    减少每次读取时的 API 调用。
  */
 class TelegramAdapter implements FilesystemAdapter
@@ -42,6 +42,7 @@ class TelegramAdapter implements FilesystemAdapter
         protected int $strategyId,
         string $apiBase = 'https://api.telegram.org',
         protected int $timeout = 120,
+        protected string $localRoot = '',
     ) {
         $this->apiBase = rtrim($apiBase, '/');
         $this->http = new HttpClient(['timeout' => $this->timeout]);
@@ -105,6 +106,9 @@ class TelegramAdapter implements FilesystemAdapter
         }
 
         $document = $result['document'] ?? null;
+        if ($size > 0 && isset($document['file_size']) && (int)$document['file_size'] !== $size) {
+            throw UnableToWriteFile::atLocation($path, 'Telegram 返回的文件大小与上传不一致');
+        }
         if (! isset($result['message_id'], $document['file_id'])) {
             throw UnableToWriteFile::atLocation($path, 'Telegram 未返回 file_id');
         }
@@ -148,11 +152,20 @@ class TelegramAdapter implements FilesystemAdapter
 
         try {
             $filePath = $this->resolveFilePath($record->file_id);
+            if (str_starts_with($filePath, '/')) {
+                $root = realpath($this->localRoot);
+                $file = realpath($filePath);
+                if (!$root || $root === '/' || !$file || !str_starts_with($file, rtrim($root, '/').'/')
+                    || !is_file($file) || !is_readable($file)) throw new RuntimeException('TG 本地文件不在配置的可读共享目录内');
+                $stream = fopen($file, 'rb');
+                if (!$stream) throw new RuntimeException('无法打开 TG 本地文件');
+                return $stream;
+            }
             $response = $this->http->get($this->fileUrl($filePath), ['stream' => true]);
 
             return $response->getBody()->detach();
         } catch (Throwable $e) {
-            throw UnableToReadFile::fromLocation($path, $e->getMessage(), $e);
+            throw UnableToReadFile::fromLocation($path, str_replace($this->botToken, '[redacted]', $e->getMessage()));
         }
     }
 
@@ -297,7 +310,7 @@ class TelegramAdapter implements FilesystemAdapter
             $response = $this->http->post($this->apiBase . '/bot' . $this->botToken . '/' . $method, $options);
             $data = json_decode((string) $response->getBody(), true);
         } catch (Throwable $e) {
-            throw new RuntimeException('Telegram Bot API 请求失败 [' . $method . ']：' . $e->getMessage(), 0, $e);
+            throw new RuntimeException('Telegram Bot API 请求失败 [' . $method . ']：请检查网络、服务状态与权限');
         }
 
         if (! is_array($data) || ($data['ok'] ?? false) !== true) {
@@ -312,7 +325,7 @@ class TelegramAdapter implements FilesystemAdapter
      */
     protected function resolveFilePath(string $fileId): string
     {
-        $cacheKey = 'telegram_file_path:' . md5($fileId);
+        $cacheKey = 'telegram_file_path:' . hash('sha256', $this->strategyId.'|'.$this->apiBase.'|'.$this->botToken.'|'.$fileId);
         $filePath = Cache::get($cacheKey);
         if (! $filePath) {
             try {

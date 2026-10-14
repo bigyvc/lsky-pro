@@ -234,6 +234,11 @@ class ImageService
             $builder->where('strategy_id', $id);
         })->where('md5', $image->md5)->where('sha1', $image->sha1)->first();
         if (is_null($existing)) {
+            $quotaLease = null;
+            if (app(R2ArchiveQuota::class)->policy($strategy)) {
+                [$pathname, $quotaLease] = app(R2ArchiveQuota::class)->reserveNamed($strategy, $pathname, $file->getSize());
+                $image->fill(['path'=>dirname($pathname)==='.'?'':dirname($pathname), 'name'=>basename($pathname)]);
+            }
             $handle = fopen($file->getRealPath(), 'rb');
             try {
                 $filesystem->writeStream($pathname, $handle);
@@ -242,6 +247,7 @@ class ImageService
                 throw new UploadException(config('app.debug', false) ? $e->getMessage() : '图片上传失败');
             } finally {
                 if (is_resource($handle)) fclose($handle);
+                app(R2ArchiveQuota::class)->release($quotaLease);
             }
         } else {
             $image->fill($existing->only('path', 'name'));
@@ -390,6 +396,8 @@ class ImageService
                 chatId: (string)$configs->get(TelegramOption::ChatId),
                 strategyId: $strategy->id,
                 apiBase: $configs->get(TelegramOption::ApiBase) ?: 'https://api.telegram.org',
+                timeout: 1200,
+                localRoot: (string)$configs->get('local_root', ''),
             ),
         };
     }

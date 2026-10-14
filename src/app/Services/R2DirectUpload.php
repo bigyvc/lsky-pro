@@ -143,6 +143,8 @@ class R2DirectUpload
         $received = [];
         $signatures = [];
         if ($meta['phase'] === 'uploading') {
+            $meta['quota_lease']=app(R2ArchiveQuota::class)->reserve($strategy, $meta['file']['size'], basename($dir), $meta['key']);
+            $this->save($dir, $meta);
             $received = array_map(fn ($p) => (int) $p['PartNumber'] - 1, $this->checkedParts($meta, $gateway));
             foreach ($meta['file']['parts'] as $index => $part) {
                 if (! in_array($index, $received)) $signatures[$index] = $gateway->sign($meta['key'], $meta['upload_id'], $index + 1, $part['size'], $part['md5']);
@@ -155,7 +157,7 @@ class R2DirectUpload
     private function availableKey(Strategy $strategy, string $preferred): string
     {
         $identity = $this->identity($strategy);
-        $reserved = [];
+        $reserved = app(R2ArchiveQuota::class)->pendingKeys(R2ArchiveQuota::identity($strategy));
         // Include other administrators and expired tasks until pruning has aborted them remotely.
         foreach (glob($this->root().'/*/*/meta.json') ?: [] as $path) {
             $meta = json_decode((string) file_get_contents($path), true);
@@ -170,6 +172,8 @@ class R2DirectUpload
         for ($attempt = 0; $attempt < 100; $attempt++) {
             $key = $attempt === 0 ? $preferred : $stem.'-'.bin2hex(random_bytes(3)).'.'.$extension;
             if (isset($reserved[$key])) continue;
+            if (\Illuminate\Support\Facades\Schema::hasTable('r2_archive_jobs') && \App\Models\R2ArchiveJob::where('source_identity', R2ArchiveQuota::identity($strategy))
+                ->where('source_path_hash', hash('sha256', $key))->exists()) continue;
             if (Image::query()->whereIn('strategy_id', $strategyIds)
                 ->where('path', dirname($key) === '.' ? '' : dirname($key))->where('name', basename($key))->exists()) continue;
             if ($gateway->find($key) !== null) continue;
@@ -217,14 +221,16 @@ class R2DirectUpload
             $meta = $this->lock($this->root().'/.names.lock', function () use ($user, $file, $strategy, $preferred, $dir) {
                 $meta = ['user_id' => $user->id, 'file' => $file, 'storage_identity' => $this->identity($strategy),
                     'key' => $this->availableKey($strategy, $preferred), 'phase' => 'creating'];
-                $this->save($dir, $meta);
+                $meta['quota_lease'] = app(R2ArchiveQuota::class)->reserve($strategy, $file['size'], basename($dir), $meta['key']);
+                try { $this->save($dir, $meta); }
+                catch (\Throwable $e) { app(R2ArchiveQuota::class)->release($meta['quota_lease']); throw $e; }
                 return $meta;
             });
             return $this->lock($dir.'/.lock', function () use ($dir, $meta, $strategy, $id) {
                 try { $meta['upload_id'] = $this->gateway($strategy)->start($meta['key'], $this->mime($meta['file']['name']), $id); }
                 catch (\Throwable $e) {
                     // No upload ID was returned. Release the local reservation; bucket lifecycle covers an uncertain remote init.
-                    $meta['phase'] = 'aborted'; $this->save($dir, $meta); throw $e;
+                    $meta['phase'] = 'aborted'; $this->save($dir, $meta); app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null); throw $e;
                 }
                 $meta['phase'] = 'uploading';
                 $this->save($dir, $meta);
@@ -251,6 +257,7 @@ class R2DirectUpload
         return $this->task($request, $id, function ($dir, $meta, $strategy, $gateway) use ($index) {
             if ($meta['phase'] !== 'uploading' || ! isset($meta['file']['parts'][$index])) throw new UploadException('分片或上传状态无效');
             $part = $meta['file']['parts'][$index];
+            $meta['quota_lease']=app(R2ArchiveQuota::class)->reserve($strategy, $meta['file']['size'], basename($dir), $meta['key']);
             $this->save($dir, $meta);
             return $gateway->sign($meta['key'], $meta['upload_id'], $index + 1, $part['size'], $part['md5']);
         });
@@ -265,7 +272,7 @@ class R2DirectUpload
     public function complete(Request $request, string $id): array
     {
         return $this->task($request, $id, function ($dir, $meta, $strategy, $gateway) use ($request, $id) {
-            if (isset($meta['result'])) return $meta['result'];
+            if (isset($meta['result'])) { app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null); return $meta['result']; }
             if ($meta['phase'] === 'creating') throw new UploadException('R2 任务创建结果未知，请取消任务后重试');
             if ($meta['phase'] === 'uploading' || $meta['phase'] === 'completing') {
                 // Recover a lost CompleteMultipartUpload response without uploading the file a second time.
@@ -274,6 +281,7 @@ class R2DirectUpload
                     // An external writer used the reserved name. Never overwrite or delete its object.
                     $gateway->abort($meta['key'], $meta['upload_id']);
                     $meta['phase'] = 'aborted'; $this->save($dir, $meta);
+                    app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null);
                     throw new UploadException('文件名已被其他上传占用，请重新上传以自动分配短编号');
                 }
                 if (! $head || ! $this->objectValid($head, $meta, $id)) {
@@ -294,6 +302,7 @@ class R2DirectUpload
                 $gateway->delete($meta['key']);
                 $meta['phase'] = 'aborted';
                 $this->save($dir, $meta);
+                app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null);
                 throw new UploadException('无法确认图片格式，请改用服务器中转上传');
             }
             $image = $this->images->registerDirect($request, $strategy, $meta['file'], $meta['key'], $dimensions);
@@ -301,6 +310,7 @@ class R2DirectUpload
                 ->setAppends(['pathname', 'links'])->only('id', 'pathname', 'origin_name', 'size', 'mimetype', 'md5', 'sha1', 'links')];
             $meta['phase'] = 'recorded';
             $this->save($dir, $meta);
+            app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null);
             return $meta['result'];
         });
     }
@@ -312,6 +322,7 @@ class R2DirectUpload
             $this->discard($meta, $gateway, basename($dir));
             $meta['phase'] = 'aborted';
             $this->save($dir, $meta);
+            app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null);
         });
     }
 
@@ -343,6 +354,7 @@ class R2DirectUpload
                     try { $this->discard($meta, $this->gateway($strategy), basename($dir)); }
                     catch (\Throwable $e) { Utils::e($e, '过期 R2 直传任务清理失败'); return; }
                 }
+                app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null);
                 @unlink($path);
                 @unlink($dir.'/meta.tmp');
                 // Keep the lock inode while other requests might hold its file descriptor.

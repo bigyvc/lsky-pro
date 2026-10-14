@@ -383,7 +383,7 @@
                                 <div class="col-span-3 sm:col-span-2 mb-4">
                                     <label for="configs[url]" class="block text-sm font-medium text-ink"><span class="text-danger">*</span>访问域名</label>
                                     <x-input type="url" name="configs[url]" id="configs[url]" placeholder="请输入图片访问域名 http(s)://" value="{{ $strategy->configs->get('url') }}" />
-                                    <small class="text-orange-500"><i class="fas fa-exclamation"></i> Telegram 策略必须配合角色组的「原图保护」使用（走应用中转输出），请勿用作直链策略，否则会泄露 Bot Token。此处访问域名仅作占位，建议填写你的图床域名。</small>
+                                    <small class="text-orange-500"><i class="fas fa-exclamation"></i> Telegram 图片自动通过应用输出，Bot Token 不进入图片链接。此处访问域名仅作占位，建议填写你的图床域名。</small>
                                 </div>
                                 <div class="col-span-3 sm:col-span-2 mb-4">
                                     <label for="configs[queries]" class="block text-sm font-medium text-ink">URL Queries</label>
@@ -403,6 +403,11 @@
                                     <label for="configs[api_base]" class="block text-sm font-medium text-ink">Bot API 地址</label>
                                     <x-input type="url" name="configs[api_base]" id="configs[api_base]" placeholder="默认 https://api.telegram.org，可填自建 Bot API 服务" value="{{ $strategy->configs->get('api_base') }}" />
                                 </div>
+                            <div class="col-span-6 sm:col-span-4 mb-4">
+                                <label for="configs[local_root]" class="block text-sm font-medium text-ink">TG 本地共享目录</label>
+                                <x-input name="configs[local_root]" id="configs[local_root]" placeholder="自建 API 填 /var/lib/telegram-bot-api" value="{{ $strategy->configs->get('local_root') }}" />
+                                <small>与 TG API 使用相同绝对路径，图床挂载为只读；官方 API 留空。</small>
+                            </div>
                             </div>
                         @endif
                     </div>

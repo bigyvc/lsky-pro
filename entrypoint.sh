@@ -605,6 +605,23 @@ rmdir /var/www/html/public/images 2>/dev/null || true
 # 兜一层 `||` 是刻意的：本脚本 set -eu，函数万一非 0 冒泡出去会让容器直接起不来。
 auto_migrate || echo "[lsky] 警告：自动迁移步骤异常（不影响启动，详见上方日志）"
 
+# Self-hosted Telegram files are served through a shared read-only volume.
+# Add Apache's www-data user to that volume's group when explicitly configured.
+if [ -n "${TG_FILE_GID:-}" ]; then
+    case "$TG_FILE_GID" in *[!0-9]*|'') echo '[lsky] Invalid TG_FILE_GID' >&2; exit 1;; esac
+    tg_group=$(getent group "$TG_FILE_GID" | cut -d: -f1 || true)
+    if [ -z "$tg_group" ]; then groupadd -g "$TG_FILE_GID" lsky-telegram-files; tg_group=lsky-telegram-files; fi
+    usermod -a -G "$tg_group" www-data
+fi
+
+# Disabled until a policy is configured. One serial migration worker, every five minutes.
+(
+    while sleep 300; do
+        su -s /bin/sh www-data -c 'php /var/www/html/artisan r2:archive --limit=25' \
+            || echo '[lsky] R2 归档未完成，下轮继续；请检查归档状态'
+    done
+) &
+
 # 分片暂存自动清理：不依赖宿主机 cron；只清理专用目录内24小时未更新的任务。
 (
     while sleep 3600; do

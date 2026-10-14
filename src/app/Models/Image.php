@@ -208,7 +208,7 @@ class Image extends Model
     {
         return new Attribute(function () {
             // 是否启用原图保护功能
-            if ($this->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection)) {
+            if ($this->strategy?->key === \App\Enums\StrategyKey::Telegram || $this->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection)) {
                 $url = asset("{$this->key}.{$this->extension}");
             } else {
                 $url = rtrim($this->strategy?->configs->get('url'), '/').'/'.ltrim($this->pathname, '/');

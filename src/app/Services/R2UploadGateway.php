@@ -91,4 +91,20 @@ class R2UploadGateway
     {
         $this->client->deleteObject(['Bucket' => $this->bucket, 'Key' => $key]);
     }
+
+    /** Count the entire physical bucket, including objects absent from the Lsky database. */
+    public function bucketBytes(): int
+    {
+        $bytes = 0;
+        foreach ($this->client->getPaginator('ListObjectsV2', ['Bucket'=>$this->bucket, 'MaxKeys'=>1000]) as $page) {
+            foreach ($page['Contents'] ?? [] as $object) $bytes += (int) $object['Size'];
+        }
+        return $bytes;
+    }
+
+    public function readStream(string $key)
+    {
+        return $this->client->getObject(['Bucket'=>$this->bucket, 'Key'=>$key,
+            '@http'=>['stream'=>true, 'timeout'=>1200]])['Body']->detach();
+    }
 }

@@ -126,9 +126,9 @@ RUN printf '%s\n' \
 # 这几个文件以后只要被改动（哪怕手滑），构建就会红 —— md5 必须随改动同步更新。
 RUN printf '%s\n' \
         'dcc6b370414cf329b7902cdd85f33d2f  ./config/convention.php' \
-        'fa972b4ff379136ff6392c7b6dbc7184  ./routes/web.php' \
+        'db65c75d80206cfdea444901e0ca2035  ./routes/web.php' \
         'c1ab546f3e7f5237c1d45435171858ce  ./routes/auth.php' \
-        '73a02bfc0c752407fa87b2ab8d963b7c  ./app/Services/ImageService.php' \
+        '025533aa0d6934258caf5977c73e691e  ./app/Services/ImageService.php' \
     | md5sum -c -
 
 # 有意偏离上游的另一个文件：composer.lock。

@@ -36,6 +36,8 @@ Route::get('/', fn () => auth()->check() ? redirect()->route('images') : view('w
     ->middleware(CheckIsEnableGuestUpload::class);
 
 Route::any('install', [Controller::class, 'install'])->name('install');
+Route::get('archive/r2/{source}/health', [\App\Http\Controllers\R2ArchiveController::class, 'health']);
+Route::get('archive/r2/{source}', [\App\Http\Controllers\R2ArchiveController::class, 'archived']);
 Route::post('upload', [Controller::class, 'upload']);
 Route::prefix('upload/r2-direct')->middleware(['auth', 'throttle:60,1'])->group(function () {
     Route::post('', [\App\Http\Controllers\R2DirectUploadController::class, 'begin']);

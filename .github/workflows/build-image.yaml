@@ -601,6 +601,8 @@ jobs:
           # Real Laravel / SDK signing with fake R2 transport; no account credentials.
           docker cp test/php/r2-direct-controller.php lsky-smoke:/tmp/r2-direct-controller.php
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php /tmp/r2-direct-controller.php
+          docker cp test/php/r2-archive.php lsky-smoke:/tmp/r2-archive.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/r2-archive.php
           docker rm -f lsky-smoke
 
           {

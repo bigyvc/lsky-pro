@@ -139,6 +139,7 @@ class StrategyRequest extends FormRequest
                 'configs.bot_token' => 'required',
                 'configs.chat_id' => 'required',
                 'configs.api_base' => 'nullable|url',
+                'configs.local_root' => 'nullable|string|max:500',
             ],
         });
     }
@@ -225,6 +226,7 @@ class StrategyRequest extends FormRequest
                 'configs.bot_token' => 'Bot Token',
                 'configs.chat_id' => '频道 Chat ID',
                 'configs.api_base' => 'Bot API 地址',
+                'configs.local_root' => 'TG 本地共享目录',
             ],
         });
     }
