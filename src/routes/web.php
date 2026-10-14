@@ -37,6 +37,12 @@ Route::get('/', fn () => auth()->check() ? redirect()->route('images') : view('w
 
 Route::any('install', [Controller::class, 'install'])->name('install');
 Route::post('upload', [Controller::class, 'upload']);
+Route::prefix('upload/r2-direct')->middleware(['auth', 'throttle:60,1'])->group(function () {
+    Route::post('', [\App\Http\Controllers\R2DirectUploadController::class, 'begin']);
+    Route::post('{id}/sign', [\App\Http\Controllers\R2DirectUploadController::class, 'sign']);
+    Route::post('{id}/complete', [\App\Http\Controllers\R2DirectUploadController::class, 'complete']);
+    Route::post('{id}/abort', [\App\Http\Controllers\R2DirectUploadController::class, 'abort']);
+});
 Route::prefix('upload/chunks')->middleware('throttle:90,1')->group(function () {
     Route::post('', [\App\Http\Controllers\ChunkUploadController::class, 'begin']);
     Route::post('{id}/part', [\App\Http\Controllers\ChunkUploadController::class, 'part']);

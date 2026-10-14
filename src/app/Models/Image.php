@@ -104,12 +104,14 @@ class Image extends Model
 
         static::deleting(function (self $image) {
             // TODO 检测是否启用了队列，放置队列中异步删除
-            // 在当前图片所属的策略中是否存在其他相同 md5 和 sha1 的记录，没有则可以删除物理文件
+            // 仅同一策略、同一物理路径且哈希一致的记录共享文件；直传的独立对象不能因内容相同而漏删。
             if (!static::query()
                 ->where('strategy_id', $image->strategy_id)
                 ->where('id', '<>', $image->id)
                 ->where('md5', $image->md5)
                 ->where('sha1', $image->sha1)
+                ->where('path', $image->path)
+                ->where('name', $image->name)
                 ->exists()
             ) {
                 // 删除本地缓存文件
@@ -224,6 +226,7 @@ class Image extends Model
 
             // 没有缩略图则返回原图
             if (! file_exists(public_path($pathname))) {
+                if ($this->size > 50 * 1024) return asset('static/large-image.svg');
                 return $this->url;
             }
 

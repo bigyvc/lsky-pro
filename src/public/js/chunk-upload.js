@@ -16,10 +16,10 @@
         }
     }
 
-    async function workers(indices, operation, isCancelled) {
+    async function workers(indices, operation, isCancelled, concurrency = CONCURRENCY) {
         let cursor = 0;
         let error;
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, indices.length) }, async () => {
+        await Promise.all(Array.from({ length: Math.min(concurrency, indices.length) }, async () => {
             while (!error && !isCancelled()) {
                 const position = cursor++;
                 if (position >= indices.length) return;
@@ -92,22 +92,29 @@
         let previous = Promise.resolve();
         return function attach(data) {
             const file = data.files[0];
-            if (file.size <= CHUNK_SIZE) return;
+            if (file.size <= CHUNK_SIZE && !options.directUrl) return;
+            const nativeSubmit = typeof data.submit === 'function' ? data.submit.bind(data) : () => {};
+            const nativeAbort = typeof data.abort === 'function' ? data.abort.bind(data) : () => {};
+            let nativeActive = false;
             let cancelled = false;
             let running = false;
             const active = new Set();
             data.abort = function () {
+                if (nativeActive) { nativeAbort(); return; }
                 cancelled = true;
                 active.forEach(xhr => xhr.abort());
             };
             data.submit = function () {
                 if (running) return data._chunkPromise;
+                const direct = Boolean(options.directUrl && options.useDirect && options.useDirect());
+                if (!direct && file.size <= CHUNK_SIZE) { nativeActive = true; return nativeSubmit(); }
+                nativeActive = false;
                 running = true;
                 cancelled = false;
                 const run = async () => {
                     let key;
                     const request = (suffix, form, progress, timeout) => retry(
-                        () => xhrRequest(options.url + suffix, form, options.csrf, active, progress, timeout),
+                        () => xhrRequest((direct ? options.directUrl : options.url) + suffix, form, options.csrf, active, progress, timeout),
                         () => cancelled);
                     const info = text => data.$preview.find('.upload-info').text(text);
                     const form = entries => {
@@ -121,6 +128,18 @@
                         if (cancelled) return;
                         data.$preview.find('[data-operate="upload"]').hide();
                         info('准备分片上传…');
+                        if (direct) {
+                            const result = await root.LskyR2Direct.run(file, {
+                                url: options.directUrl, request, form, strategy: options.strategy, info, active,
+                                cancelled: () => cancelled,
+                                progress: (percent, label) => {
+                                    info(`${label}…${percent}%`);
+                                    data.$preview.find('.upload-progress').css('width', percent + '%');
+                                }
+                            });
+                            $picker.fileupload('option', 'done').call($picker[0], null, { ...data, result });
+                            return;
+                        }
                         const print = await fingerprint(file);
                         const strategy = options.strategy();
                         key = 'lsky-chunks-v1:' + options.url + ':' + strategy + ':' + file.name + ':' + print;

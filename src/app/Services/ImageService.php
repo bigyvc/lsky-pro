@@ -699,8 +699,56 @@ class ImageService
         }
     }
 
-    protected function replacePathname(string $pathname, UploadedFile $file): string
+    /** Build a collision-resistant direct-upload key using the same configured naming rules. */
+    public function directPathname(Group $group, string $name, string $id): string
     {
+        $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        $rule = $group->configs->get(GroupConfigKey::PathNamingRule).'/'.$group->configs->get(GroupConfigKey::FileNamingRule);
+        return ltrim($this->replacePathname($rule, $name), '/').'-'.$id.'.'.$extension;
+    }
+
+    /** Register a verified R2 object; no image bytes are downloaded or uploaded here. */
+    public function registerDirect(Request $request, Strategy $strategy, array $metadata, string $pathname, array $dimensions): Image
+    {
+        $user = $request->user();
+        $group = $user->group;
+        return DB::transaction(function () use ($request, $strategy, $metadata, $pathname, $dimensions, $user, $group) {
+            // Serialize capacity checks with other direct completions for this user.
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $existing = Image::query()->where('strategy_id', $strategy->id)->where('user_id', $user->id)
+                ->where('path', dirname($pathname) === '.' ? '' : dirname($pathname))->where('name', basename($pathname))->first();
+            if ($existing) return $existing;
+            $this->rateLimiter($group->configs, $request);
+            if ($metadata['size'] / 1024 + $user->images()->sum('size') > $lockedUser->capacity) {
+                throw new UploadException('储存空间不足');
+            }
+            $image = new Image();
+            $image->user_id = $user->id;
+            $image->group_id = $group->id;
+            $image->strategy_id = $strategy->id;
+            $albumId = $user->configs->get(UserConfigKey::DefaultAlbum);
+            if ($albumId && $user->albums()->whereKey($albumId)->exists()) $image->album_id = $albumId;
+            $image->fill([
+                'permission' => $user->configs->get(UserConfigKey::DefaultPermission, ImagePermission::Private),
+                'path' => dirname($pathname) === '.' ? '' : dirname($pathname), 'name' => basename($pathname),
+                'origin_name' => $metadata['name'], 'size' => $metadata['size'] / 1024,
+                'mimetype' => $dimensions['mime'], 'extension' => strtolower(pathinfo($metadata['name'], PATHINFO_EXTENSION)),
+                // Full-file hashes are streamed in the administrator's browser. No client hash-based deduplication.
+                'md5' => $metadata['md5'], 'sha1' => $metadata['sha1'],
+                'width' => $dimensions[0], 'height' => $dimensions[1],
+                'is_unhealthy' => false, 'uploaded_ip' => $request->ip(),
+            ]);
+            $image->saveOrFail();
+            $user->increment('image_num');
+            if ($image->album_id) $user->albums()->whereKey($image->album_id)->increment('image_num');
+            return $image;
+        });
+    }
+
+    protected function replacePathname(string $pathname, UploadedFile|string $file): string
+    {
+        $original = is_string($file) ? $file : $file->getClientOriginalName();
+        $extension = pathinfo($original, PATHINFO_EXTENSION);
         $array = [
             '{Y}' => date('Y'),
             '{y}' => date('y'),
@@ -712,7 +760,7 @@ class ImageService
             '{md5-16}' => substr(md5(microtime().Str::random()), 0, 16),
             '{str-random-16}' => Str::random(),
             '{str-random-10}' => Str::random(10),
-            '{filename}' => $this->sanitizeFilename(Str::replaceLast('.'.$file->getClientOriginalExtension(), '', $file->getClientOriginalName())),
+            '{filename}' => $this->sanitizeFilename(Str::replaceLast('.'.$extension, '', $original)),
             '{uid}' => Auth::check() ? Auth::id() : 0,
         ];
         return str_replace(array_keys($array), array_values($array), $pathname);

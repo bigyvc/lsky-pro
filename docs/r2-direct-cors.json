@@ -1,0 +1,9 @@
+[
+  {
+    "AllowedOrigins": ["https://dayv.cc"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-MD5", "Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]

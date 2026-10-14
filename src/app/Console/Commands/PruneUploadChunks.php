@@ -13,6 +13,7 @@ class PruneUploadChunks extends Command
     public function handle(): int
     {
         (new ChunkUploadStore(storage_path('app/upload-chunks')))->prune();
+        app(\App\Services\R2DirectUpload::class)->prune();
         $this->info('过期分片清理完成');
         return 0;
     }

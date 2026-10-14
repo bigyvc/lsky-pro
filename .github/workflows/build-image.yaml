@@ -598,6 +598,9 @@ jobs:
             exit 1
           fi
           echo "测试版内存收紧自证通过：memory_limit=64M，MaxConnectionsPerChild=5"
+          # Real Laravel / SDK signing with fake R2 transport; no account credentials.
+          docker cp test/php/r2-direct-controller.php lsky-smoke:/tmp/r2-direct-controller.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php /tmp/r2-direct-controller.php
           docker rm -f lsky-smoke
 
           {

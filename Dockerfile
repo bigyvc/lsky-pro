@@ -126,9 +126,9 @@ RUN printf '%s\n' \
 # 这几个文件以后只要被改动（哪怕手滑），构建就会红 —— md5 必须随改动同步更新。
 RUN printf '%s\n' \
         'dcc6b370414cf329b7902cdd85f33d2f  ./config/convention.php' \
-        'bea4c1a63c28242506d2e212d952b541  ./routes/web.php' \
+        'fa972b4ff379136ff6392c7b6dbc7184  ./routes/web.php' \
         'c1ab546f3e7f5237c1d45435171858ce  ./routes/auth.php' \
-        'abe6c783b513f4664ade6a30cc11f935  ./app/Services/ImageService.php' \
+        'cd1e0b8d3ede5a45dfe4c285b3363608  ./app/Services/ImageService.php' \
     | md5sum -c -
 
 # 有意偏离上游的另一个文件：composer.lock。
@@ -198,7 +198,7 @@ RUN printf '%s\n' \
 # 所以这里再对三处构建期内容做确定性哈希，把它们也编进标记：
 #   app_src_md5 = app/ config/ routes/ 三个目录下所有文件「按路径排序后内容拼接」的 md5
 #                 （排序用 sort -z，与文件系统返回顺序无关 = 同一份源码在任何机器上结果一致）；
-#   app_js_md5  = public/js/app.js 的 md5；app_css_md5 = public/css/app.css 的 md5；
+#   app_js_md5  = public/js/ 下全部脚本的确定性内容指纹（含直传及hash-wasm）；app_css_md5 = public/css/app.css 的 md5；
 #   context_css_md5 = public/css/context-js/context-js.css 的 md5
 #                 （补这一条的背景：菜单那一块的样式在 resources/css/context-js.less 里，编译产物
 #                  是这个 css。它此前**不在任何 md5/指纹里** —— 只改它会连同 less 一起被漏掉，
@@ -213,7 +213,7 @@ RUN printf '%s\n' \
 # 入口脚本比的是整个标记文件的内容，所以多出这几行 = 换镜像时自动触发同步，entrypoint 不需要改。
 RUN APP_SRC_MD5=$(find app config routes -type f -print0 2>/dev/null | sort -z | xargs -0 -r cat 2>/dev/null | md5sum | cut -d' ' -f1); \
     [ -n "$APP_SRC_MD5" ] || APP_SRC_MD5=none; \
-    APP_JS_MD5=$(cat public/js/app.js public/js/chunk-upload.js | md5sum 2>/dev/null | cut -d' ' -f1); \
+    APP_JS_MD5=$(find public/js -type f -print0 | sort -z | xargs -0 -r cat | md5sum 2>/dev/null | cut -d' ' -f1); \
     [ -n "$APP_JS_MD5" ] || APP_JS_MD5=none; \
     APP_CSS_MD5=$(md5sum public/css/app.css 2>/dev/null | cut -d' ' -f1); \
     [ -n "$APP_CSS_MD5" ] || APP_CSS_MD5=none; \

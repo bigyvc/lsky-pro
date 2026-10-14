@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180">
+  <rect width="240" height="180" rx="16" fill="#eef2ff"/>
+  <rect x="76" y="34" width="88" height="64" rx="9" fill="none" stroke="#6379bf" stroke-width="4"/>
+  <circle cx="102" cy="54" r="7" fill="#6379bf"/>
+  <path d="m83 88 22-20 16 13 17-23 19 30" fill="none" stroke="#6379bf" stroke-width="4" stroke-linejoin="round"/>
+  <text x="120" y="132" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#475569">大图 · 点击查看</text>
+</svg>
