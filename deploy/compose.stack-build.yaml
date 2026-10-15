@@ -1,0 +1,7 @@
+# Optional local Lsky build; always combine with compose.stack.yaml.
+services:
+  lsky-pro:
+    image: ${LSKY_LOCAL_IMAGE:-lsky-pro:local}
+    build:
+      context: ..
+      dockerfile: Dockerfile

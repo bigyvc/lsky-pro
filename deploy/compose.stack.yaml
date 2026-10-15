@@ -1,0 +1,39 @@
+# New-server deployment. Keep stack.env and live data outside the source checkout.
+services:
+  lsky-pro:
+    image: ${LSKY_IMAGE:-ghcr.io/bigyvc/lsky-pro-docker:latest}
+    container_name: ${LSKY_CONTAINER_NAME:-lsky-pro}
+    restart: unless-stopped
+    environment:
+      WEB_PORT: "8089"
+      PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT:-64M}
+    ports:
+      - "127.0.0.1:${LSKY_HTTP_PORT:-8089}:8089"
+    volumes:
+      - ${LSKY_DATA_DIR:-/opt/lsky/data}:/var/www/html
+      - ${TG_DATA_DIR:-/opt/lsky/telegram-api/data}:/var/lib/telegram-bot-api:ro
+    depends_on:
+      telegram-bot-api:
+        condition: service_started
+    networks:
+      - lsky
+  telegram-bot-api:
+    build:
+      context: ../tools/telegram-api
+      dockerfile: Dockerfile
+      args:
+        TELEGRAM_API_BASE_IMAGE: ${TELEGRAM_API_BASE_IMAGE:-aiogram/telegram-bot-api:latest}
+    image: ${TG_IMAGE:-lsky-telegram-api:local}
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:?Fill TELEGRAM_API_ID in the private stack.env}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:?Fill TELEGRAM_API_HASH in the private stack.env}
+      TELEGRAM_LOCAL: "1"
+    volumes:
+      - ${TG_DATA_DIR:-/opt/lsky/telegram-api/data}:/var/lib/telegram-bot-api
+    expose:
+      - "8081"
+    networks:
+      - lsky
+networks:
+  lsky: {}

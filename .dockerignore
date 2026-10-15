@@ -51,3 +51,9 @@ src/bootstrap/cache/*.php
 # 而 Laravel 运行期必须能往这个目录写日志 —— 所以紧跟一条 `!` 把占位文件留下，保住目录。
 src/storage/logs/*
 !src/storage/logs/.gitignore
+
+# Unified deployment files and accidental live stack data are not image inputs.
+/deploy
+/stack.env
+/data
+/telegram-api

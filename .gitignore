@@ -1,3 +1,10 @@
 node_modules/
 *.log
 .DS_Store
+
+# Live stack credentials/data belong outside the checkout.
+/stack.env
+/.env
+/deploy/*.env
+/data/
+/telegram-api/

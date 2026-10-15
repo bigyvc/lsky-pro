@@ -95,6 +95,10 @@
 - 约 1.2GB 磁盘空间（镜像约 1GB）+ 图片数据空间
 - 如需公网 HTTPS 访问：一个域名 + 一台反代（Nginx / Caddy，见下文）
 
+### Lsky 与自建 TG API 一起部署
+
+新服务器可用一份 Docker Compose 同时启动图床和 TG API，支持拉取 Lsky 镜像或本地源码构建。填写统一的私有 env 文件后部署；TG API 仅走内网，共享目录对图床只读。完整命令、后台 TG 字段和迁机限制见 [Docker 一体化部署](docs/docker-stack.md)。现有生产部署继续按原 Compose 更新，不直接替换数据路径。
+
 ### Docker Compose 部署（推荐）
 
 新建目录，写入 `docker-compose.yaml`：
