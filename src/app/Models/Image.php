@@ -200,7 +200,8 @@ class Image extends Model
 
     public function pathname(): Attribute
     {
-        $path = $this->path ? "{$this->path}/" : '';
+        // "0" is a valid guest directory, not an empty path.
+        $path = $this->path !== null && $this->path !== '' ? "{$this->path}/" : '';
         return new Attribute(fn() => "{$path}{$this->name}");
     }
 

@@ -120,5 +120,12 @@ $other=fopen($renew->filePath,'rb');check(!flock($other,LOCK_EX|LOCK_NB),'active
 check(count(glob($work.'/storage/app/tg-cache/*.json'))===1,'only completed getFile media downloads are registered');fclose($handle);
 unlink($renew->filePath);$handle=$renew->readStream('cache.png');
 check(stream_get_contents($handle)==='cache-original'&&$renew->calls===2,'removed local cache invalidates cached path and re-downloads via getFile');fclose($handle);
+$zero=new App\Models\Image();$zero->path='0';$zero->name='zero.png';
+check($zero->pathname==='0/zero.png','guest directory zero is retained in the image storage pathname');
+App\Models\TelegramFile::create(['strategy_id'=>$tg->id,'path'=>'0/zero.png','file_id'=>'zero-dir-file','message_id'=>4,'size'=>14]);
+$zeroAdapter=new RenewTelegram('TEST_TOKEN','-100001',$tg->id,'http://telegram-bot-api:8081',1200,$work.'/tg');
+$zeroAdapter->filePath=$work.'/tg/123/documents/zero.png';$zeroAdapter->remotePath=$work.'/remote-copy';
+$handle=$zeroAdapter->readStream($zero->pathname);check(stream_get_contents($handle)==='cache-original','guest image pathname resolves the existing zero-directory Telegram mapping');fclose($handle);
+foreach (['',null] as $empty) {$zero->path=$empty;check($zero->pathname==='zero.png','empty root directory remains unprefixed');}
 check(memory_get_peak_usage(true)<64*1024*1024,'migration and streaming stay within configured memory limit');
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);

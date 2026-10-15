@@ -40,3 +40,7 @@ R2原有公共域名链接不会因修改数据库而自动转到TG。保持旧R
 - 归档状态在数据库 `r2_archive_jobs` 中；仅当目标文件长度和MD5/SHA1通过验证后才切换记录并删除R2源文件。
 
 依据：https://core.telegram.org/bots/api#senddocument 、https://core.telegram.org/bots/api#getfile 、https://core.telegram.org/bots/api#using-a-local-bot-api-server
+
+## 游客目录 0 导致图片 503 的修复
+
+早期版本将目录字符串 `"0"` 误判为空，导致 TG 映射为 `0/图片.png`，网页却读取 `图片.png`。修复后的 Image::pathname 显式区分 null/空串与 `"0"`。更新镜像后原图片链接可恢复，不需要删除 TG 文件、改数据库映射或重传。此问题与原图保护开关无关。
