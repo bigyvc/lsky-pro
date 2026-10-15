@@ -54,13 +54,13 @@ let done=0,failed=0;
 const picker={0:{},fileupload:(option,name)=>name==='done'?()=>{done++;}:()=>{failed++;}};
 const preview={find:()=>({hide(){return this;},text(){return this;},css(){return this;}})};
 function file(name) {return {name,size:354*MiB+634*1024,lastModified:1,slice(start,end){return{size:end-start,arrayBuffer:async()=>new Uint8Array(Math.min(end-start,MiB)).buffer};}};}
-const attach=create(picker,{url:'https://example/upload/chunks',csrf:'token',strategy:()=>1});
+const attach=create(picker,{url:'https://example/upload/chunks',csrf:'token',strategy:()=>1,fileConcurrency:1});
 const data={files:[file('large.png')],$preview:preview};attach(data);await data.submit();
 assert.equal(done,1);assert.equal(failed,0);assert.equal(peak,3);assert.equal(commitCount,1);
 assert(!partRequests.includes(0),'resume skips previously acknowledged first part');
 assert.equal(partRequests.filter(i=>i===2).length,2,'failed part retries');
 assert.equal(saved.size,0,'successful completion clears resume identity');
-// Multiple large files never multiply the configured three workers.
+// An explicit file limit of one preserves serial relay uploads.
 peak=0;const a={files:[file('a.png')],$preview:preview},b={files:[file('b.png')],$preview:preview};attach(a);attach(b);await Promise.all([a.submit(),b.submit()]);assert.equal(peak,3);assert.equal(done,3);
 let nativeCalls=0;const small={files:[{size:50*MiB}],submit:()=>nativeCalls++};attach(small);small.submit();assert.equal(nativeCalls,1);
 console.log('PASS 50 MiB / 3 workers; retry; resume skips accepted parts; whole-page concurrency; completion; small-file compatibility');

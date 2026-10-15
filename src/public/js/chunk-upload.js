@@ -88,8 +88,27 @@
     function storageRemove(key) { try { root.localStorage.removeItem(key); } catch (_) {} }
 
     function create($picker, options) {
-        // Only one large file stages at a time; three requests total, even after "upload all".
-        let previous = Promise.resolve();
+        // File concurrency is independent of the per-file part workers. Zero means unlimited.
+        const configured = Number(options.fileConcurrency ?? 3);
+        const limit = Number.isInteger(configured) && configured >= 0 ? (configured || Infinity) : 3;
+        let activeFiles = 0;
+        const pending = [];
+        function drain() {
+            while (activeFiles < limit && pending.length) {
+                const job = pending.shift();
+                activeFiles++;
+                Promise.resolve().then(job.run).then(job.resolve, job.reject).finally(() => {
+                    activeFiles--;
+                    drain();
+                });
+            }
+        }
+        function schedule(run) {
+            return new Promise((resolve, reject) => {
+                pending.push({ run, resolve, reject });
+                drain();
+            });
+        }
         return function attach(data) {
             const file = data.files[0];
             if (file.size <= CHUNK_SIZE && !options.directUrl) return;
@@ -199,8 +218,7 @@
                         }
                     } finally { running = false; }
                 };
-                data._chunkPromise = previous.catch(() => {}).then(run);
-                previous = data._chunkPromise;
+                data._chunkPromise = schedule(run);
                 return data._chunkPromise;
             };
         };

@@ -114,11 +114,11 @@
     <script src="{{ asset('js/clipboard/clipboard.min.js') }}"></script>
 @endpush
 @push('scripts')
-    <script src="{{ asset('js/chunk-upload.js') }}?v=20261016-1"></script>
+    <script src="{{ asset('js/chunk-upload.js') }}?v=20261016-2"></script>
     @if(Auth::check() && Auth::user()->is_adminer)
         <script src="{{ asset('js/hash-wasm/md5.umd.min.js') }}?v=4.12.0"></script>
         <script src="{{ asset('js/hash-wasm/sha1.umd.min.js') }}?v=4.12.0"></script>
-        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261016-1"></script>
+        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261016-2"></script>
     @endif
     <script>
         let allowSuffixes = @json($_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes));
@@ -160,6 +160,7 @@
         let queue = []; // 文件队列
         const attachChunkUpload = LskyChunkUpload.create($picker, {
             url: '{{ url('upload/chunks') }}',
+            fileConcurrency: {{ $_group->configs->get(\App\Enums\GroupConfigKey::ConcurrentUploadNum, 3) }},
             directUrl: {{ (Auth::check() && Auth::user()->is_adminer) ? Illuminate\Support\Js::from(url('upload/r2-direct')) : 'null' }},
             useDirect: () => $('#upload-mode').val() === 'r2-direct',
             csrf: $('meta[name="csrf-token"]').attr('content'),
