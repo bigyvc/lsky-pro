@@ -25,6 +25,17 @@ class CleanerTest(unittest.TestCase):
  def test_pressure_respects_recent_access(self):
   old,_=self.item('old',600);fresh,_=self.item('fresh',100)
   self.assertEqual(self.run_clean(max_bytes=0)['removed'],1);self.assertTrue(fresh.exists());self.assertFalse(old.exists())
+ def test_capacity_only_preserves_old_files_below_limit(self):
+  old,_=self.item('old',1000000)
+  self.assertEqual(self.run_clean(ttl=0,max_bytes=15*1024**3)['removed'],0);self.assertTrue(old.exists())
+ def test_capacity_only_evicts_oldest_until_below_limit(self):
+  old,_=self.item('old',10000);newer,_=self.item('newer',1000)
+  self.assertEqual(self.run_clean(ttl=0,max_bytes=150)['removed'],1);self.assertFalse(old.exists());self.assertTrue(newer.exists())
+ def test_capacity_only_still_respects_active_reads(self):
+  old,_=self.item('old',10000)
+  with old.open('rb') as f:
+   fcntl.flock(f,fcntl.LOCK_SH);self.assertEqual(self.run_clean(ttl=0,max_bytes=0)['removed'],0)
+  self.assertEqual(self.run_clean(ttl=0,max_bytes=0)['removed'],1)
  def test_tampering_and_replaced_file(self):
   p,r=self.item('replacement');p.write_bytes(b'changed')
   outside=self.root/'outside';outside.write_bytes(b'secret');link=self.data/'123/documents/link';link.symlink_to(outside)

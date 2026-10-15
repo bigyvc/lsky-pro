@@ -30,7 +30,7 @@ install -d -m 755 /usr/local/libexec
 install -m 755 "$script_dir/telegram-cache-cleaner.py" /usr/local/libexec/lsky-telegram-cache-cleaner.py
 if [[ ! -e /etc/default/lsky-telegram-cache ]]; then
     cat > /etc/default/lsky-telegram-cache <<'ENV'
-# Seconds and bytes. Pressure cleaning still protects files accessed in the last 5 minutes.
+# Seconds and bytes. TTL=0 disables age-only eviction; pressure still protects recent access.
 TG_CACHE_TTL=3600
 TG_CACHE_MAX_BYTES=2147483648
 TG_CACHE_MIN_FREE=2147483648

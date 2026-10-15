@@ -38,7 +38,7 @@ def clean(registry, data, container_root='/var/lib/telegram-bot-api', ttl=3600,
         result['registered']=len(entries)
         for accessed,size,path,manifest,info in entries:
             age=now-accessed
-            if age < min_age or (age < ttl and total <= max_bytes and free >= min_free): continue
+            if age < min_age or ((ttl <= 0 or age < ttl) and total <= max_bytes and free >= min_free): continue
             try:
                 # Shared flock is held by PHP until stream close; do not evict active reads.
                 fd=os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
@@ -60,7 +60,7 @@ def main():
     p.add_argument('--registry',default='/opt/lsky/data/storage/app/tg-cache')
     p.add_argument('--data',default='/opt/lsky/telegram-api/data')
     p.add_argument('--container-root',default='/var/lib/telegram-bot-api')
-    p.add_argument('--ttl',type=int,default=3600)
+    p.add_argument('--ttl',type=int,default=3600,help='Seconds since last access; 0 disables age-only eviction')
     p.add_argument('--max-bytes',type=int,default=2*1024**3)
     p.add_argument('--min-free',type=int,default=2*1024**3)
     p.add_argument('--min-age',type=int,default=300)

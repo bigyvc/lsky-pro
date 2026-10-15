@@ -470,3 +470,19 @@ python3 /usr/local/libexec/lsky-telegram-cache-cleaner.py --dry-run
 自动测试覆盖活跃流锁、重新下载、TTL/容量压力、最近访问保护、只读预览、未登记文件/数据库保留、目录越界与文件替换。真实 API 缓存布局和服务权限需部署后验证。
 
 依据：[Telegram Bot API 维护者对本地文件清理的说明](https://github.com/tdlib/telegram-bot-api/issues/303)。维护者允许删除已下载文件，明确要求不操作 temp 与 API 工作目录中的状态文件。
+
+
+### 大磁盘：15GiB容量触发清理
+
+更新源码并重装宿主机清理脚本后，可在 `/etc/default/lsky-telegram-cache` 设置：
+
+```ini
+TG_CACHE_TTL=0
+TG_CACHE_MAX_BYTES=16106127360
+TG_CACHE_MIN_FREE=2147483648
+TG_CACHE_MIN_AGE=300
+```
+
+`TTL=0` 关闭单纯按年龄清理，避免未达容量阈值却因超过1小时被删除。清理器在登记缓存超过15GiB或剩余磁盘不足2GiB时按最近访问时间从旧到新清理，活动读取及5分钟内访问继续跳过。重装命令 `bash /opt/lsky/source/tools/install-telegram-cache-cleaner.sh lsky-pro` 会安装新版 Python，不覆盖已存在的参数文件；参数在每次 service 运行时读取，无需重启图床。
+
+这是登记媒体的清理阈值，不是预留空间或整个TG目录的硬上限。未登记文件、TDLib状态不计入15GiB；TG API本身仍可能提前清理自己的缓存，不能保证长期保留。默认新安装仍为2GiB/1小时，按机器情况单独配置。
