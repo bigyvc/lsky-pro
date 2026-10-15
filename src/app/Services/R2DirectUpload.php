@@ -296,8 +296,11 @@ class R2DirectUpload
             }
             $head = $gateway->head($meta['key']);
             if (! $this->objectValid($head, $meta, $id)) throw new UploadException('R2 文件长度或所属任务校验失败');
-            // Inspect only the first 64KiB. Large metadata headers can use the existing relay upload instead.
+            // Fast path for ordinary images, bounded fallback for camera metadata.
             $dimensions = @getimagesizefromstring($gateway->header($meta['key']));
+            if (!$dimensions && $this->mime($meta['file']['name']) === 'image/jpeg') {
+                $dimensions = @getimagesizefromstring($gateway->header($meta['key'], min($meta['file']['size'], 4 * 1024 * 1024)));
+            }
             if (! $dimensions || ($dimensions['mime'] ?? '') !== $this->mime($meta['file']['name'])) {
                 $gateway->delete($meta['key']);
                 $meta['phase'] = 'aborted';

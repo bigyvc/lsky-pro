@@ -187,9 +187,15 @@
                         $picker.fileupload('option', 'done').call($picker[0], null, { ...data, result });
                     } catch (error) {
                         if (!cancelled) {
-                            $picker.fileupload('option', 'fail').call($picker[0], null,
-                                { ...data, errorThrown: error.message, jqXHR: { status: 0 } });
-                            info(error.message);
+                            // Render before invoking plugin callbacks: a callback error must not leave a stale "confirming" state.
+                            info(error.message || '上传失败，请重试');
+                            data.$preview.find('[data-operate="upload"]').show();
+                            const fail = $picker.fileupload('option', 'fail');
+                            try {
+                                if (typeof fail === 'function') fail.call($picker[0], null,
+                                    { ...data, errorThrown: error.message, jqXHR: { status: 0, responseJSON: { message: error.message } } });
+                            } catch (_) { /* The inline failure message and retry button remain available. */ }
+                            info(error.message || '上传失败，请重试');
                         }
                     } finally { running = false; }
                 };

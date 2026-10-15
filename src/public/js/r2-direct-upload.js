@@ -73,7 +73,7 @@
         let response;
         try { response = await request('', form({ ...metadata, id: oldId })); }
         catch (e) {
-            if (!oldId || !e.message.includes('已过期')) throw e;
+            if (!oldId || !['已过期', '任务已取消或文件校验失败'].some(reason => e.message.includes(reason))) throw e;
             remove(key); response = await request('', form(metadata));
         }
         const task = response.data;

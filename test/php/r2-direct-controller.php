@@ -12,7 +12,7 @@ Illuminate\Support\Facades\Cache::forever('configs',collect(config('convention.a
 set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
 function check($condition,$message){if(!$condition)throw new Exception($message);echo "PASS $message\n";}
 class FakeR2 extends App\Services\R2UploadGateway {
- public array $uploads=[],$objects=[];public int $starts=0,$completions=0,$deletes=0,$aborts=0,$headers=0;public bool $lostResponse=false;
+ public array $uploads=[],$objects=[];public int $starts=0,$completions=0,$deletes=0,$aborts=0,$headers=0;public bool $lostResponse=false;public ?string $headerBytes=null;public array $headerLimits=[];
  public function __construct(){}
  public function start(string $key,string $mime,string $id):string {$upload='u'.++$this->starts;$this->uploads[$upload]=['key'=>$key,'mime'=>$mime,'id'=>$id,'parts'=>[]];return $upload;}
  public function sign(string $key,string $id,int $number,int $size,string $md5):array{return ['url'=>'https://r2.test/'.$id.'?part='.$number,'md5'=>base64_encode(hex2bin($md5)),'size'=>$size];}
@@ -20,7 +20,7 @@ class FakeR2 extends App\Services\R2UploadGateway {
  public function complete(string $key,string $id,array $parts):void{$this->completions++;$u=$this->uploads[$id];$this->objects[$key]=['ContentLength'=>array_sum(array_column($parts,'Size')),'Metadata'=>['lsky-direct-id'=>$u['id']]];unset($this->uploads[$id]);if($this->lostResponse){$this->lostResponse=false;throw new RuntimeException('lost remote response');}}
  public function head(string $key):array{if(!isset($this->objects[$key]))throw new RuntimeException('not found');return $this->objects[$key];}
  public function find(string $key):?array{return $this->objects[$key]??null;}
- public function header(string $key):string{$this->headers++;return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==');}
+ public function header(string $key,int $limit=65536):string{$this->headers++;$this->headerLimits[]=$limit;if($this->headerBytes!==null)return substr($this->headerBytes,0,$limit);return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==');}
  public function abort(string $key,string $id):void{$this->aborts++;unset($this->uploads[$id]);}
  public function delete(string $key):void{$this->deletes++;unset($this->objects[$key]);}
  public function populate(array $parts):void{$id=array_key_last($this->uploads);$rows=[];foreach($parts as $i=>$p)$rows[]=['PartNumber'=>$i+1,'Size'=>$p['size'],'ETag'=>'"'.$p['md5'].'"'];$this->uploads[$id]['parts']=array_reverse($rows);}
@@ -93,13 +93,22 @@ $other=clone $user;$other->id=999;$r=requestFor(['index'=>0]);$r->setUserResolve
 check(!$denied['status'],"another administrator cannot sign someone else's task");
 $jpg=body($controller->begin(requestFor(array_merge($metadata,['name'=>'fake.jpg'])),$service));check($jpg['status'],'new task for mismatched image test');$remote->populate($parts);
 $bad=body($controller->complete(requestFor(),$service,$jpg['data']['id']));check(!$bad['status']&&$remote->deletes===1&&App\Models\Image::count()===1,'actual header mismatch rejected and temporary object removed');
+// A real JPEG SOF follows two maximum-size APP segments, beyond the old 64KiB prefix.
+$remote->headerBytes="\xff\xd8".str_repeat("\xff\xe1".pack('n',65535).str_repeat('x',65533),2)
+ ."\xff\xc0".pack('n',17)."\x08".pack('nn',6000,4000)."\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xff\xd9";
+check(@getimagesizefromstring(substr($remote->headerBytes,0,65536))===false,'camera JPEG dimensions can occur beyond the 64KiB prefix');
+$camera=body($controller->begin(requestFor(array_merge($metadata,['name'=>'DSC_CAMERA.JPG'])),$service));$remote->populate($parts);
+$cameraResult=body($controller->complete(requestFor(),$service,$camera['data']['id']));
+check($cameraResult['status']&&App\Models\Image::where('origin_name','DSC_CAMERA.JPG')->value('width')===4000,'camera JPEG with large APP metadata commits original dimensions');
+check(max($remote->headerLimits)===4*1024*1024,'JPEG header fallback is bounded at 4MiB');
+$remote->headerBytes=null;
 $user->capacity=1;$bad=body($controller->begin(requestFor(array_merge($metadata,['name'=>'new.png'])),$service));check(!$bad['status'],'capacity including pending tasks enforced');$user->capacity=1073741824;
 $updated=$group->configs;$updated->put(App\Enums\GroupConfigKey::IsEnableScan,true);$group->configs=$updated;$group->save();$user->unsetRelation('group');
 $bad=body($controller->begin(requestFor(array_merge($metadata,['name'=>'scan.png'])),$service));check(!$bad['status'],'required scanning cannot be bypassed by direct upload');
 $updated=$group->configs;$updated->put(App\Enums\GroupConfigKey::IsEnableScan,false);$group->configs=$updated;$group->save();$user->unsetRelation('group');
 $abandoned=body($controller->begin(requestFor(array_merge($metadata,['name'=>'abandoned.png'])),$service));check($abandoned['status'],'abandoned upload initialized');
 foreach(glob($work.'/storage/app/r2-direct/*/*/meta.json') as $path){$m=json_decode(file_get_contents($path),true);$m['updated_at']=time()-86401;file_put_contents($path,json_encode($m));}
-$service->prune();check($remote->aborts>0&&count($remote->objects)===1,'expired multipart aborted while committed object retained');
+$service->prune();check($remote->aborts>0&&count($remote->objects)===2,'expired multipart aborted while committed object retained');
 class FailingHead extends App\Services\R2UploadGateway {
  public function __construct(public int $status){}
  public function head(string $key):array {

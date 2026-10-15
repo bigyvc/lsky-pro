@@ -75,11 +75,21 @@ class R2UploadGateway
         }
     }
 
-    public function header(string $key): string
+    public function header(string $key, int $limit = 65536): string
     {
-        $body = $this->client->getObject(['Bucket' => $this->bucket, 'Key' => $key, 'Range' => 'bytes=0-65535'])['Body'];
-        try { return $body->read(65536); }
-        finally { $body->close(); }
+        // Camera JPEG APP/EXIF/ICC segments may put dimensions beyond the first 64KiB.
+        $limit = max(1, min($limit, 4 * 1024 * 1024));
+        $body = $this->client->getObject(['Bucket' => $this->bucket, 'Key' => $key,
+            'Range' => 'bytes=0-'.($limit - 1)])['Body'];
+        try {
+            $bytes = '';
+            while (strlen($bytes) < $limit && !$body->eof()) {
+                $chunk = $body->read(min(65536, $limit - strlen($bytes)));
+                if ($chunk === '') break;
+                $bytes .= $chunk;
+            }
+            return $bytes;
+        } finally { $body->close(); }
     }
 
     public function abort(string $key, string $uploadId): void

@@ -114,11 +114,11 @@
     <script src="{{ asset('js/clipboard/clipboard.min.js') }}"></script>
 @endpush
 @push('scripts')
-    <script src="{{ asset('js/chunk-upload.js') }}?v=20261014-2"></script>
+    <script src="{{ asset('js/chunk-upload.js') }}?v=20261015-2"></script>
     @if(Auth::check() && Auth::user()->is_adminer)
         <script src="{{ asset('js/hash-wasm/md5.umd.min.js') }}?v=4.12.0"></script>
         <script src="{{ asset('js/hash-wasm/sha1.umd.min.js') }}?v=4.12.0"></script>
-        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261014-1"></script>
+        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261015-2"></script>
     @endif
     <script>
         let allowSuffixes = @json($_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes));

@@ -59,3 +59,24 @@ assert.equal(successes,1);assert.equal(failures,0);assert.equal(maxTransfers,6);
 direct=false;const small={files:[{size:100,name:'small.png'}],submit:()=>native++,abort(){}};attach(small);small.submit();assert.equal(native,1);
 await assert.rejects(context.LskyR2Direct.hashes(file,()=>true,()=>{}),e=>e.cancelled);
 console.log('PASS full-file streaming hashes, 1MiB read budget, 50MiB R2 parts, six concurrent PUTs, resume, retry, no CSRF/cookies to R2, relay selectable');
+
+// Completed HTTP errors must be visible even when the uploader's fail hook throws.
+const originalDirect=context.LskyR2Direct.run;
+context.LskyR2Direct.run=async()=>{throw new Error('无法确认图片格式，请改用服务器中转上传');};
+let shown=false,lastMessage='';
+const failurePreview={find:()=>({hide(){return this;},show(){shown=true;return this;},text(v){lastMessage=v;return this;},css(){return this;}})};
+const failingPicker={0:{},fileupload:()=>()=>{throw new Error('callback failed');}};
+const failureAttach=context.LskyChunkUpload.create(failingPicker,{directUrl:'https://site/upload/r2-direct',useDirect:()=>true,strategy:()=>1});
+const failedData={files:[file],$preview:failurePreview};failureAttach(failedData);await failedData.submit();
+assert(shown);assert.equal(lastMessage,'无法确认图片格式，请改用服务器中转上传');
+context.LskyR2Direct.run=originalDirect;
+const tiny={name:'camera.JPG',size:1,lastModified:1,slice(){return{size:1,arrayBuffer:async()=>new Uint8Array([120]).buffer};}};
+const tinyHash=createHash('sha1').update('x').digest('hex');
+const savedKey='lsky-r2-direct-v1:https://site/upload/r2-direct:1:camera.JPG:1:'+tinyHash;
+saved.set(savedKey,'old-aborted-task');let begins=0;
+const recovered=await originalDirect(tiny,{url:'https://site/upload/r2-direct',strategy:()=>1,info(){},progress(){},active:new Set(),cancelled:()=>false,
+ form:entries=>{const f=new Form();for(const [k,v]of Object.entries(entries))if(v!=null)f.append(k,v);return f;},
+ request:async(suffix,body)=>{assert.equal(suffix,'');begins++;if(begins===1){assert.equal(body.get('id'),'old-aborted-task');throw new Error('直传任务已取消或文件校验失败，请重新选择文件');}
+ assert.equal(body.get('id'),undefined);return{data:{id:'new-task',result:{status:true,data:{id:2}}}};}});
+assert(recovered.status);assert.equal(begins,2);assert(!saved.has(savedKey));
+console.log('PASS visible completion failure despite callback error; aborted camera upload restarts without stale task ID');
