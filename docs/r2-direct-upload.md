@@ -54,3 +54,9 @@ src/public/js/hash-wasm是固定hash-wasm 4.12.0的MD5/SHA1 UMD产物和MIT许�
 ## 相机 JPG 停留在“确认文件并保存记录”
 
 先查看 `/complete` 的响应和任务 phase。HTTP 200 也可能包含 `status:false`；aborted 表示任务已终止，不代表还在合并。包含大量 EXIF/ICC 的相机 JPEG 可能需要扩展文件头读取，新版支持最多4MiB。前端会显示业务失败原因，并允许重选文件时自动丢弃已终止的续传编号。请更新后强制刷新上传页，再重新选择原文件；不要手工把 aborted 改为 recorded 或跳过文件格式验证。
+
+## 小文件与上传组件
+
+当前R2直传统一走multipart接口。小于等于50MiB的文件只有一片，不会切成六片；六并发是大文件同时在途的最大分片数。小文件仍有创建/确认任务的开销。
+
+旧版把blueimp组件初始化在文件输入框上，选择文件后输入框被替换，完成回调引用旧元素会报 `cannot call methods on fileupload prior to initialization`。新版将组件挂在稳定容器并显式指定fileInput，兼容反复选择、分片完成和失败回调。更新后清除Blade缓存并强制刷新页面。真实blueimp/jsdom测试覆盖该替换行为，不再只依赖模拟回调。

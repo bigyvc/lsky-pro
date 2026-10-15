@@ -1,4 +1,4 @@
-<div class="pb-6 h-full">
+<div id="lsky-upload-widget" class="pb-6 h-full">
     <input type="file" id="picker" name="file" class="hidden" accept="{{ implode(',', array_map(fn ($ext) => '.'.$ext, $_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes))) }}" multiple>
 
     <div class="mb-4 p-4 ls-card">
@@ -114,11 +114,11 @@
     <script src="{{ asset('js/clipboard/clipboard.min.js') }}"></script>
 @endpush
 @push('scripts')
-    <script src="{{ asset('js/chunk-upload.js') }}?v=20261015-2"></script>
+    <script src="{{ asset('js/chunk-upload.js') }}?v=20261016-1"></script>
     @if(Auth::check() && Auth::user()->is_adminer)
         <script src="{{ asset('js/hash-wasm/md5.umd.min.js') }}?v=4.12.0"></script>
         <script src="{{ asset('js/hash-wasm/sha1.umd.min.js') }}?v=4.12.0"></script>
-        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261015-2"></script>
+        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261016-1"></script>
     @endif
     <script>
         let allowSuffixes = @json($_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes));
@@ -155,7 +155,8 @@
         const UPLOAD_ERROR = 2; // 上传失败
         let $previews = $('#upload-preview');
         let $links = $('#links-container');
-        let $picker = $('#picker');
+        // Keep the widget on a stable container: blueimp replaces and cleans file inputs after selection.
+        let $picker = $('#lsky-upload-widget');
         let queue = []; // 文件队列
         const attachChunkUpload = LskyChunkUpload.create($picker, {
             url: '{{ url('upload/chunks') }}',
@@ -199,6 +200,7 @@
             $info.text(message ? message : msg);
         }
         $picker.fileupload({
+            fileInput: $('#picker'),
             url: '{{ route('upload') }}',
             autoUpload: false,
             dataType: 'json',
