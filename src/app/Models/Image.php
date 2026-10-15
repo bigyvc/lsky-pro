@@ -250,7 +250,7 @@ class Image extends Model
     public function filesystem(): Filesystem
     {
         if (is_null($this->filesystem)) {
-            $this->filesystem = new Filesystem((new ImageService())->getAdapter($this->strategy));
+            $this->filesystem = new Filesystem(app(ImageService::class)->getAdapter($this->strategy));
         }
         return $this->filesystem;
     }

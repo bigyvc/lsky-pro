@@ -207,14 +207,14 @@ class ImageService
         $filename = $this->replacePathname(
             $configs->get(GroupConfigKey::PathNamingRule).'/'.$configs->get(GroupConfigKey::FileNamingRule), $file,
         );
-        $pathname = $filename.".{$extension}";
+        $pathname = (new \League\Flysystem\WhitespacePathNormalizer())->normalizePath($filename.".{$extension}");
 
         [$width, $height] = @getimagesize($file->getRealPath()) ?: [400, 400];
 
         $image->fill([
             'md5' => md5_file($file->getRealPath()),
             'sha1' => sha1_file($file->getRealPath()),
-            'path' => $configs->get(GroupConfigKey::PathNamingRule) ? dirname($pathname) : '',
+            'path' => dirname($pathname) === '.' ? '' : dirname($pathname),
             'name' => basename($pathname),
             'origin_name' => $file->getClientOriginalName(),
             'size' => $file->getSize() / 1024,
@@ -233,14 +233,26 @@ class ImageService
         $existing = Image::query()->when($image->strategy_id, function (Builder $builder, $id) {
             $builder->where('strategy_id', $id);
         })->where('md5', $image->md5)->where('sha1', $image->sha1)->first();
+        // A database record alone cannot prove a TG object still has a usable mapping.
+        if ($existing && $strategy->key === StrategyKey::Telegram && !$filesystem->fileExists($existing->pathname)) {
+            $pathname = $existing->pathname;
+            $existing = null;
+        }
         if (is_null($existing)) {
             $quotaLease = null;
+            $nameLock = null;
             if (app(R2ArchiveQuota::class)->policy($strategy)) {
                 [$pathname, $quotaLease] = app(R2ArchiveQuota::class)->reserveNamed($strategy, $pathname, $file->getSize());
                 $image->fill(['path'=>dirname($pathname)==='.'?'':dirname($pathname), 'name'=>basename($pathname)]);
             }
-            $handle = fopen($file->getRealPath(), 'rb');
+            if ($strategy->key === StrategyKey::Telegram) {
+                [$pathname, $nameLock] = $this->reserveTelegramName($strategy, $filesystem, $pathname, $image);
+            }
+            $image->fill(['path'=>dirname($pathname)==='.'?'':dirname($pathname), 'name'=>basename($pathname)]);
+            $handle = null;
             try {
+                $handle = fopen($file->getRealPath(), 'rb');
+                if (!$handle) throw new UploadException('无法读取待上传文件');
                 $filesystem->writeStream($pathname, $handle);
             } catch (FilesystemException $e) {
                 Utils::e($e, '保存图片时出现异常');
@@ -248,6 +260,7 @@ class ImageService
             } finally {
                 if (is_resource($handle)) fclose($handle);
                 app(R2ArchiveQuota::class)->release($quotaLease);
+                if (is_resource($nameLock)) { flock($nameLock, LOCK_UN); fclose($nameLock); }
             }
         } else {
             $image->fill($existing->only('path', 'name'));
@@ -707,12 +720,40 @@ class ImageService
         }
     }
 
+    /** Keep TG keys stable: original name first, six hex digits only on a collision. */
+    protected function reserveTelegramName(Strategy $strategy, Filesystem $filesystem, string $preferred, Image $image): array
+    {
+        $dir = storage_path('app/upload-name-locks');
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) throw new UploadException('无法创建上传名称锁目录');
+        $candidate = $preferred;
+        for ($attempt = 0; $attempt < 100; $attempt++) {
+            // Fixed 256 lock stripes avoid creating a persistent lock file per uploaded image.
+            $lock = fopen($dir.'/'.substr(hash('sha256', $strategy->id.'|'.$candidate), 0, 2).'.lock', 'c');
+            if (!$lock) throw new UploadException('无法打开上传名称锁');
+            if (!flock($lock, LOCK_EX)) { fclose($lock); throw new UploadException('无法锁定上传名称'); }
+            try {
+                $conflict = Image::query()->where('strategy_id', $strategy->id)
+                    ->where('path', dirname($candidate) === '.' ? '' : dirname($candidate))
+                    ->where('name', basename($candidate))
+                    ->where(fn($q) => $q->where('md5', '!=', $image->md5)->orWhere('sha1', '!=', $image->sha1))->exists();
+                if (!$conflict && !$filesystem->fileExists($candidate)) return [$candidate, $lock];
+            } catch (\Throwable $e) { flock($lock, LOCK_UN); fclose($lock); throw $e; }
+            flock($lock, LOCK_UN); fclose($lock);
+            $extension = pathinfo($preferred, PATHINFO_EXTENSION);
+            $stem = substr($preferred, 0, -strlen($extension)-1);
+            $candidate = $stem.'-'.bin2hex(random_bytes(3)).'.'.$extension;
+        }
+        throw new UploadException('无法分配可用文件名，请重试');
+    }
+
     /** Build the preferred direct-upload key; the task service reserves a free name. */
     public function directPathname(Group $group, string $name, string $suffix = ''): string
     {
         $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         $rule = $group->configs->get(GroupConfigKey::PathNamingRule).'/'.$group->configs->get(GroupConfigKey::FileNamingRule);
-        return ltrim($this->replacePathname($rule, $name), '/').($suffix === '' ? '' : '-'.$suffix).'.'.$extension;
+        return (new \League\Flysystem\WhitespacePathNormalizer())->normalizePath(
+            $this->replacePathname($rule, $name).($suffix === '' ? '' : '-'.$suffix).'.'.$extension
+        );
     }
 
     /** Register a verified R2 object; no image bytes are downloaded or uploaded here. */
@@ -725,7 +766,13 @@ class ImageService
             $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             $existing = Image::query()->where('strategy_id', $strategy->id)->where('user_id', $user->id)
                 ->where('path', dirname($pathname) === '.' ? '' : dirname($pathname))->where('name', basename($pathname))->first();
-            if ($existing) return $existing;
+            if ($existing) {
+                if ($existing->md5 !== $metadata['md5'] || $existing->sha1 !== $metadata['sha1']
+                    || (int) round($existing->size * 1024) !== $metadata['size']) {
+                    throw new UploadException('已有图片记录与本次上传不一致，请联系管理员检查');
+                }
+                return $existing;
+            }
             $this->rateLimiter($group->configs, $request);
             if ($metadata['size'] / 1024 + $user->images()->sum('size') > $lockedUser->capacity) {
                 throw new UploadException('储存空间不足');

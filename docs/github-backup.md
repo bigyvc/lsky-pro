@@ -4,9 +4,9 @@
 
 ## 包含与不包含
 
-在线 SQLite backup API 生成一致性快照并执行 integrity_check，包含用户、策略密钥、telegram_files、R2 归档策略及路径映射。默认数据库必须位于 `/opt/lsky/data/database/database.sqlite`，路径不符则停止，不生成缺失数据库的备份。
+在线 SQLite backup API 生成一致性快照并执行 integrity_check，包含用户、策略密钥、telegram_files、R2 归档策略及路径映射。先读取运行容器的数据库配置，确认实际使用 SQLite，而不是仅看到磁盘上有一个旧文件。默认数据库必须位于 `/opt/lsky/data/database/database.sqlite`，路径不符则停止，不生成缺失数据库的备份。
 
-配置包括图床 `.env`（含 APP_KEY）、`/opt/lsky/stack.env`、统一 Compose、可选本地构建 Compose、TG API Dockerfile、Caddyfile、已安装的 TG 缓存清理脚本及 systemd 配置。
+配置包括图床 `.env`（含 APP_KEY）、`/opt/lsky/stack.env`、统一 Compose、可选本地构建 Compose、TG API Dockerfile、Caddyfile、已安装的 TG 缓存清理脚本及 systemd 配置、备份任务配置和应用代码版本标记（若存在）。
 
 不包含 R2/TG 图片、TG API 的 TDLib 状态及下载缓存、进行中的分片、服务器全部程序或 Cloudflare 控制台中的 Worker 部署。Worker 代码在源码 `tools/r2-archive-worker.mjs`；请另存实际桶名、路由 `r2.dayv.io/*`、BUCKET 绑定、APP_ORIGIN=https://dayv.io、SOURCE_STRATEGY_ID=3。重建 API 需要原 API 凭据、原 Bot Token 和频道；不要换 Bot。GitHub 故障时不会更新本地 latest.tar.gz，也不会把失败报告为成功。
 

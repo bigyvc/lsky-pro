@@ -11,7 +11,7 @@ source "$CONFIG"
 BRANCH=dayv-io
 TOKEN="$BASE/github-token"
 [[ -s "$TOKEN" ]] || { echo '缺少 github-token' >&2; exit 1; }
-for command in python3 git tar flock; do command -v "$command" >/dev/null; done
+for command in python3 git tar flock docker; do command -v "$command" >/dev/null; done
 exec 9>"$BASE/run.lock"
 flock -n 9 || { echo '备份已在运行'; exit 0; }
 # Refuse public repositories; do not log credentials or the API response.
@@ -25,6 +25,22 @@ try:
 except Exception:
     sys.exit('备份停止：无法确认目标仓库为私有，请检查仓库名、PAT 和网络')
 PY
+# Verify the running application's actual database configuration, not merely a leftover file.
+DB_CONFIG=$(docker exec "${BACKUP_CONTAINER:-lsky-pro}" php -r '
+$app=require "/var/www/html/bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$db=$app->make("db")->connection();
+echo json_encode(["driver"=>$db->getDriverName(),"path"=>$db->getConfig("database")]);
+')
+export DB_CONFIG
+python3 - <<'PYDB'
+import json, os, sys
+try:
+    cfg=json.loads(os.environ['DB_CONFIG'])
+    assert cfg['driver']=='sqlite' and cfg['path']=='/var/www/html/database/database.sqlite'
+except Exception:
+    sys.exit('备份停止：当前应用不是默认路径 SQLite；请按实际数据库部署配置备份，不能只打包遗留文件')
+PYDB
 WORK=$(mktemp -d "$BASE/work.XXXXXXXX")
 trap 'rm -rf -- "$WORK"' EXIT
 STAGE="$WORK/stage"
@@ -33,7 +49,7 @@ python3 - "$STAGE" <<'PY'
 import os, pathlib, shutil, sqlite3, sys, json, datetime
 root=pathlib.Path(sys.argv[1])
 required=['/opt/lsky/data/.env','/opt/lsky/stack.env','/opt/lsky/source/deploy/compose.stack.yaml','/etc/caddy/Caddyfile']
-optional=['/opt/lsky/source/deploy/compose.stack-build.yaml','/opt/lsky/source/tools/telegram-api/Dockerfile','/etc/default/lsky-telegram-cache','/etc/systemd/system/lsky-telegram-cache.service','/etc/systemd/system/lsky-telegram-cache.timer','/usr/local/libexec/lsky-telegram-cache-cleaner.py']
+optional=['/opt/lsky/source/deploy/compose.stack-build.yaml','/opt/lsky/source/tools/telegram-api/Dockerfile','/etc/default/lsky-telegram-cache','/etc/systemd/system/lsky-telegram-cache.service','/etc/systemd/system/lsky-telegram-cache.timer','/usr/local/libexec/lsky-telegram-cache-cleaner.py','/opt/lsky/backup/config','/etc/systemd/system/lsky-github-backup.service','/etc/systemd/system/lsky-github-backup.timer','/opt/lsky/data/.code-revision']
 for name in required+optional:
     p=pathlib.Path(name)
     if not p.is_file():

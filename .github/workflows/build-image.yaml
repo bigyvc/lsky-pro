@@ -3,7 +3,7 @@ name: Build and push image to GHCR
 # 上游 workflow 是「每天定时拉 master 重新构建并推到 DockerHub」，本 fork 改成：
 #   - 只在 master 有推送时构建（源码已钉死，定时重建没有意义）
 #   - 推到 GHCR，用仓库自带的 GITHUB_TOKEN，不需要任何 secret
-#   - 只构建 linux/amd64（部署机是 x86_64，arm64 白烧一半时间）
+#   - master 构建 amd64/arm64；测试分支默认只构建 amd64
 #   - 构建前先跑 test/ 里的 jsdom 行为测试（iOS 长按 / 菜单收放 / 触摸端二级菜单）
 #   - 先推到不可变的 sha tag → 真机自证 → 自证通过才把 latest 指过去
 #     这样自证失败时 latest 仍停在上一个已知可用的镜像，线上拉到的不会是坏版本
@@ -312,6 +312,9 @@ jobs:
       - name: Verify Telegram cache eviction safety
         run: python3 test/telegram-cache-cleaner.test.py
 
+      - name: Verify backup database selection and SQLite snapshot
+        run: python3 test/backup-config.test.py
+
       - name: Verify disk-backed upload assembly
         run: php -d memory_limit=16M test/php/chunk-store.php
 
@@ -605,6 +608,8 @@ jobs:
           # Real Laravel / SDK signing with fake R2 transport; no account credentials.
           docker cp test/php/r2-direct-controller.php lsky-smoke:/tmp/r2-direct-controller.php
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php /tmp/r2-direct-controller.php
+          docker cp test/php/telegram-upload.php lsky-smoke:/tmp/telegram-upload.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/telegram-upload.php
           docker cp test/php/r2-archive.php lsky-smoke:/tmp/r2-archive.php
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/r2-archive.php
           docker rm -f lsky-smoke

@@ -7,6 +7,7 @@ $app=require __DIR__.'/../../src/bootstrap/app.php';
 $app->useStoragePath($work.'/storage');
 foreach(['framework/cache/data','framework/sessions','framework/views','logs','app'] as $p) mkdir($work.'/storage/'.$p,0700,true);
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
 config(['database.default'=>'sqlite','database.connections.sqlite.database'=>':memory:','cache.default'=>'array','session.driver'=>'array']);
 Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
 Illuminate\Support\Facades\Cache::forever('configs',collect(config('convention.app')));

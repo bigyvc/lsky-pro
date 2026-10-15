@@ -2,7 +2,7 @@
 
 一份 Compose 管理两个容器：`lsky-pro` 与 `telegram-bot-api`。Lsky 可拉取 GitHub 已构建镜像，也可选本地源码构建；TG API 使用仓库的轻量 Dockerfile，在预编译的 aiogram 镜像上统一 UID/GID，不在 VPS 从零编译 TDLib。
 
-**这是新服务器部署入口，不是覆盖现有安装的升级脚本。** 现有两份 Compose 已经把图床与 TG 服务部署在一起，可以继续使用原方式；不要直接替换生产 Compose。数据迁移另见文末。
+**按实际顺序执行的完整入口见 [主 README](../README.md)。本文补充 Compose 模式与迁机细节，不是覆盖现有安装的升级脚本。** 现有两份 Compose 已经把图床与 TG 服务部署在一起，可以继续使用原方式；不要直接替换生产 Compose。数据迁移另见文末。
 
 ## 1. 关于“DC1 美国 API”
 
@@ -84,7 +84,7 @@ LSKY_STACK=(docker compose -p lsky --env-file /opt/lsky/stack.env -f deploy/comp
 
 ## 6. 图床初始化与 TG 接入
 
-1. 按 [主 README](../README.md#配置反向代理) 为图床域名配置 HTTPS 反代，回源 `127.0.0.1:8089`。默认端口不直接对公网开放。
+1. 按 [主 README](../README.md#3-caddyhttps-与安装向导) 为图床域名配置 HTTPS 反代，回源 `127.0.0.1:8089`。默认端口不直接对公网开放。
 2. 打开图床域名，完成安装向导，创建管理员；使用默认 SQLite 或按实际数据库部署设置。
 3. 检查容器健康和 TG 内网连接：
 

@@ -4,7 +4,7 @@ namespace App\Enums\Strategy;
 
 final class TelegramOption
 {
-    /** @var string 访问url（直链模式用；Telegram 策略必须配合原图保护使用，此处仅作占位） */
+    /** @var string 图床访问域名（TG 图片始终走应用输出，不暴露 Bot Token） */
     const Url = 'url';
 
     /** @var string Bot Token（@BotFather 获取，绝不能暴露给前端） */

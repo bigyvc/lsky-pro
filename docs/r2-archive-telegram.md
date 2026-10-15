@@ -1,5 +1,7 @@
 # R2 达到 9.5GB 后全部归档到 Telegram：部署与配置
 
+> 新机统一 Compose 请按 [主 README](../README.md) 的顺序执行；本文同时保留香港旧站双 Compose 部署及归档原理。新站 TG=2、旧站 TG=4 只是各自实例结果，必须先 --list。
+
 本功能已集成进应用和 Docker 镜像，默认关闭。启用后，R2 继续作为主上传存储；桶占用容量加正在上传的预留容量达到 9.5GB，或新上传预计超出阈值时，启动一轮归档。默认 `--retain=0`，持续迁移全部图床管理的 R2 图片到 Telegram，而不是仅降到 8.5GB。完成后，新图片继续存 R2，等待下一轮触发。
 
 **代码集成、镜像构建成功、服务器更新、归档策略启用是四个不同步骤。** 必须完成本文中的 TG 服务、Worker 和启用检查，才会自动迁移。
@@ -177,10 +179,12 @@ TCP 成功只代表服务可连接，不能替代 Bot 登录、频道权限及�
 
 切换时暂时停止上传，先官方 `logOut`，再自建 API `getMe`/`getChat` 验证，最后更新策略的 `api_base` 和 `local_root`。官方规定退出后可立即登录自建服务，但 10 分钟内无法登录回官方云 API。
 
-以下命令从数据库读取 Token，不在命令行、输出或历史记录中写入 Token。把 `4` 换成实际 TG 策略 ID。已经切换成功时不用重复执行；归档配置建立后，不要更换 Bot、频道或目标目录。
+以下命令从数据库读取 Token，不在命令行、输出或历史记录中写入 Token。运行前先从 --list 核实实际 TG 策略 ID；命令会要求输入，不内置旧站 ID。已经切换成功时不用重复执行；归档配置建立后，不要更换 Bot、频道或目标目录。
 
 ```bash
-docker exec -i -u www-data -e TG_STRATEGY_ID=4 -w /var/www/html "$LSKY_CONTAINER" php <<'PHP'
+LSKY_CONTAINER="${LSKY_CONTAINER:-lsky-pro}"
+read -r -p "输入实际 TG 策略 ID（先核对 --list）：" LSKY_TG_ID
+docker exec -i -u www-data -e TG_STRATEGY_ID="$LSKY_TG_ID" -w /var/www/html "$LSKY_CONTAINER" php <<'PHP'
 <?php
 require 'vendor/autoload.php';
 $app = require 'bootstrap/app.php';

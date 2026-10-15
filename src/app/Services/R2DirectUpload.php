@@ -84,12 +84,12 @@ class R2DirectUpload
         $host = parse_url($endpoint, PHP_URL_HOST);
         if (parse_url($endpoint, PHP_URL_SCHEME) !== 'https'
             || ! preg_match('/^[a-f0-9]{32}(?:\.(?:eu|fedramp))?\.r2\.cloudflarestorage\.com$/iD', (string) $host)) {
-            throw new UploadException('当前策略不是标准 R2 S3 接口，请使用服务器中转上传');
+            throw new UploadException('当前策略不是标准 R2 S3 接口，请检查存储策略配置');
         }
         $configs = $group->configs;
         if ($configs->get(GroupConfigKey::IsEnableScan) || $configs->get(GroupConfigKey::IsEnableWatermark)
             || $configs->get(GroupConfigKey::ImageSaveFormat) || $configs->get(GroupConfigKey::ImageSaveQuality, 100) < 100) {
-            throw new UploadException('当前角色组要求图片处理或审查，请使用服务器中转上传');
+            throw new UploadException('当前角色组要求图片处理或审查，无法使用此上传通道，请联系管理员检查策略');
         }
         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         if (! in_array($extension, $configs->get(GroupConfigKey::AcceptedFileSuffixes, []))) throw new UploadException('不支持的文件类型');
@@ -103,7 +103,7 @@ class R2DirectUpload
             'jpg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif',
             'webp' => 'image/webp', 'bmp' => 'image/bmp', 'tif', 'tiff' => 'image/tiff',
             'ico' => 'image/vnd.microsoft.icon', 'psd' => 'image/vnd.adobe.photoshop',
-            default => throw new UploadException('该格式暂不支持 R2 直传，请使用服务器中转'),
+            default => throw new UploadException('该图片格式暂不支持此上传通道'),
         };
     }
 
@@ -307,7 +307,7 @@ class R2DirectUpload
                 $meta['phase'] = 'aborted';
                 $this->save($dir, $meta);
                 app(R2ArchiveQuota::class)->release($meta['quota_lease'] ?? null);
-                throw new UploadException('无法确认图片格式，请改用服务器中转上传');
+                throw new UploadException('无法确认图片格式，请检查文件内容与扩展名是否一致');
             }
             $image = $this->images->registerDirect($request, $strategy, $meta['file'], $meta['key'], $dimensions);
             $meta['result'] = ['status' => true, 'message' => 'R2 直传成功', 'data' => $image

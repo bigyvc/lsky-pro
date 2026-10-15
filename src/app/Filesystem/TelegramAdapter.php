@@ -26,8 +26,8 @@ use Throwable;
  *    持久化在 telegram_files 表（按 strategy_id 隔离）。
  *  - 上传固定用 sendDocument（不用 sendPhoto），避免 Telegram 压缩转码，
  *    保证图床存的是原图。
- *  - Bot Token 绝不能出现在公开 URL 里：本策略必须配合用户组的「原图保护」
- *    使用（走应用中转输出），不要用作直链策略。
+ *  - Bot Token 绝不能出现在公开 URL 里：TG 图片始终走应用输出，
+ *    无需依赖用户手动开启「原图保护」。
  *  - 官方 Bot API 上传上限50MB、下载上限20MB；自建 local API 支持大图和共享目录。getFile 拿到的 file_path 缓存 50 分钟，
  *    减少每次读取时的 API 调用。
  */
@@ -107,21 +107,29 @@ class TelegramAdapter implements FilesystemAdapter
 
         $document = $result['document'] ?? null;
         if ($size > 0 && isset($document['file_size']) && (int)$document['file_size'] !== $size) {
+            if (isset($result['message_id'])) $this->deleteRemoteMessage((int)$result['message_id'], $path, true);
             throw UnableToWriteFile::atLocation($path, 'Telegram 返回的文件大小与上传不一致');
         }
         if (! isset($result['message_id'], $document['file_id'])) {
+            if (isset($result['message_id'])) $this->deleteRemoteMessage((int)$result['message_id'], $path, true);
             throw UnableToWriteFile::atLocation($path, 'Telegram 未返回 file_id');
         }
 
-        TelegramFile::updateOrCreate(
-            ['strategy_id' => $this->strategyId, 'path' => $path],
-            [
-                'file_id' => $document['file_id'],
-                'message_id' => $result['message_id'],
-                'size' => $size,
-                'mime_type' => $mimeType,
-            ],
-        );
+        try {
+            TelegramFile::updateOrCreate(
+                ['strategy_id' => $this->strategyId, 'path' => $path],
+                [
+                    'file_id' => $document['file_id'],
+                    'message_id' => $result['message_id'],
+                    'size' => $size,
+                    'mime_type' => $mimeType,
+                ],
+            );
+        } catch (Throwable $e) {
+            // Do not report success or replace the old mapping when local persistence fails.
+            $this->deleteRemoteMessage((int) $result['message_id'], $path, true);
+            throw UnableToWriteFile::atLocation($path, 'TG 文件已发送但映射保存失败，请检查数据库与磁盘状态');
+        }
 
         if ($old) {
             // 旧频道消息尽力清理，删不掉也只是频道里多一条孤儿消息，不影响映射正确性
@@ -132,10 +140,8 @@ class TelegramAdapter implements FilesystemAdapter
     public function read(string $path): string
     {
         $stream = $this->readStream($path);
-        $contents = stream_get_contents($stream);
-        if (is_resource($stream)) {
-            fclose($stream);
-        }
+        try { $contents = stream_get_contents($stream); }
+        finally { if (is_resource($stream)) fclose($stream); }
         if ($contents === false) {
             throw UnableToReadFile::fromLocation($path, '读取文件流失败');
         }
@@ -281,6 +287,7 @@ class TelegramAdapter implements FilesystemAdapter
 
     public function move(string $source, string $destination, Config $config): void
     {
+        if ($source === $destination) return;
         try {
             $this->copy($source, $destination, $config);
             $this->delete($source);
@@ -291,9 +298,12 @@ class TelegramAdapter implements FilesystemAdapter
 
     public function copy(string $source, string $destination, Config $config): void
     {
+        if ($source === $destination) return;
         // Telegram 没有服务端复制，只能下载再上传
         try {
-            $this->write($destination, $this->read($source), $config);
+            $stream = $this->readStream($source);
+            try { $this->writeStream($destination, $stream, $config); }
+            finally { if (is_resource($stream)) fclose($stream); }
         } catch (Throwable $e) {
             throw UnableToCopyFile::fromLocationTo($source, $destination, $e);
         }

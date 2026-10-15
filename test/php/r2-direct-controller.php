@@ -77,6 +77,8 @@ $done=body($controller->complete(requestFor(),$service,$id));check($done['status
 $image=App\Models\Image::first();check($image&&abs($image->size-$size/1024)<0.01&&$image->width===1,'verified object registered with original dimensions and size');
 check(str_contains($image->thumb_url,'static/large-image.svg'),'large original is not downloaded automatically as a thumbnail');
 $repeat=body($controller->complete(requestFor(),$service,$id));check($repeat===$done&&App\Models\Image::count()===1,'duplicate completion creates no extra record');
+try {$images->registerDirect(requestFor(),$strategy,array_merge($metadata,['md5'=>md5('other')]),$image->pathname,[0=>1,1=>1,'mime'=>'image/png']);throw new Exception('mismatched record accepted');}
+catch (App\Exceptions\UploadException $e) {check(App\Models\Image::count()===1,'existing path cannot silently reuse a record with mismatched hashes or length');}
 $controller->abort(requestFor(),$service,$id);check($remote->deletes===0,'abort cannot delete committed image');
 $collision=body($controller->begin(requestFor($collisionMeta),$service));
 check($collision['status']&&preg_match('~/large-[a-f0-9]{6}\.png$~',$remote->uploads[array_key_last($remote->uploads)]['key']),'registered filename collision adds short suffix');
