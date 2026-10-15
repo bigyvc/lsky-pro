@@ -13,7 +13,13 @@
         <x-slot name="content">
             <div id="strategies">
             @foreach($_group->strategies as $strategy)
-                <x-dropdown-link data-id="{{ $strategy->id }}" href="javascript:void(0)" @click="open = false">{{ $strategy->name }}</x-dropdown-link>
+                @php
+                $r2Host = parse_url($strategy->configs->get(\App\Enums\Strategy\S3Option::Endpoint, ''), PHP_URL_HOST);
+                $r2Direct = Auth::check() && Auth::user()->is_adminer
+                    && in_array($strategy->key, [\App\Enums\StrategyKey::S3, \App\Enums\StrategyKey::Minio], true)
+                    && preg_match('/^[a-f0-9]{32}(?:\.(?:eu|fedramp))?\.r2\.cloudflarestorage\.com$/iD', (string) $r2Host);
+            @endphp
+            <x-dropdown-link data-r2-direct="{{ $r2Direct ? 1 : 0 }}" data-id="{{ $strategy->id }}" href="javascript:void(0)" @click="open = false">{{ $strategy->name }}</x-dropdown-link>
             @endforeach
             </div>
         </x-slot>
@@ -27,7 +33,7 @@
             $('#strategies a').each(function () {
                 if (parseInt($(this).data('id')) === parseInt(id)) {
                     localStorage.setItem('strategy', id)
-                    $('#strategy-selected').text($(this).text()).data('id', id);
+                    $('#strategy-selected').text($(this).text()).data('id', id).data('r2-direct', $(this).data('r2-direct'));
                     isSelected = true;
 
                     @if(Auth::check())
@@ -44,7 +50,7 @@
             if (! isSelected) {
                 let $first = $('#strategies a:first-child');
                 localStorage.setItem('strategy', $first.data('id'))
-                $('#strategy-selected').text($first.text()).data('id', $first.data('id'));
+                $('#strategy-selected').text($first.text()).data('id', $first.data('id')).data('r2-direct', $first.data('r2-direct'));
             }
         };
 

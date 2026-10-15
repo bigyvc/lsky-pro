@@ -1,15 +1,25 @@
 @push('styles')
     <link rel="stylesheet" href="{{ asset('css/markdown-css/github-markdown-light.css') }}">
+    <style>
+        .ls-guest-page { min-height: 100vh; min-height: 100dvh; padding-top: 3.5rem; }
+        .ls-guest-content { display: flex; flex-direction: column; min-height: calc(100vh - 3.5rem); min-height: calc(100dvh - 3.5rem); }
+        .ls-guest-main { flex: 1 0 auto; padding-bottom: 1.5rem; }
+        .ls-guest-footer { flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+        @media (min-width: 768px) {
+            .ls-guest-page { min-height: calc(100vh / 1.1); min-height: calc(100dvh / 1.1); }
+            .ls-guest-content { min-height: calc(100vh / 1.1 - 3.5rem); min-height: calc(100dvh / 1.1 - 3.5rem); }
+        }
+    </style>
 @endpush
 
 <x-guest-layout :floating-theme-switch="false">
-    <div class="py-14 relative min-h-screen bg-cover bg-center"
+    <div class="ls-guest-page relative bg-cover bg-center"
          @if(!empty($_bing_bg)) style="background-image: url('{{ $_bing_bg }}');" @endif>
         @if(!empty($_bing_bg))
             {{-- Bing 背景上的柔光罩，保证卡片与文字可读；暗色模式下加深 --}}
             <div class="absolute inset-0 bg-white/50 dark:bg-black/50 pointer-events-none" aria-hidden="true"></div>
         @endif
-        <div class="relative">
+        <div class="ls-guest-content relative">
         {{-- 这一行与 app 布局顶栏同一套几何：左侧标题吃掉剩余宽度（min-w-0 + truncate，窄屏自动截断，
              绝不与右侧抢位）、右侧一组 shrink-0。
              外观切换以前是 guest 布局里「贴视口右上角」的浮动版，与这一行差 8px（纵向，顶栏 56px 内
@@ -46,10 +56,10 @@
                 </div>
             </div>
         </header>
-        <div class="mt-10 container mx-auto px-5 sm:px-10 md:px-10 lg:px-10 xl:px-10 2xl:px-60">
+        <main class="ls-guest-main mt-10 container mx-auto px-5 sm:px-10 md:px-10 lg:px-10 xl:px-10 2xl:px-60">
             <x-upload/>
-        </div>
-        <footer class="absolute bottom-0 left-0 right-0 w-full bg-surface-3">
+        </main>
+        <footer class="ls-guest-footer w-full bg-surface-3">
             <p class="container mx-auto py-2 px-5 sm:px-10 md:px-10 lg:px-10 xl:px-10 2xl:px-60 text-ink-2 text-sm text-center">
                 <a href="https://github.com/bigyvc/lsky-pro" target="_blank" rel="noreferrer" class="hover:text-ink">为天地立心，为生民立命，为往圣继绝学，为万世开太平</a>
             </p>

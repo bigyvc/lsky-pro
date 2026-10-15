@@ -51,6 +51,8 @@ $failure=$store->begin('user:3',['name'=>'tiny.png','size'=>3,'fingerprint'=>'3'
 file_put_contents($source,'abc'); $store->put('user:3',$failure['id'],0,$source);
 rejects(fn()=> $store->complete('user:3',$failure['id'],fn()=>throw new RuntimeException('unknown external commit')), 'failed commit reported');
 rejects(fn()=> $store->complete('user:3',$failure['id'],fn()=>[]), 'uncertain external commit not repeated');
+for ($i=0;$i<5;$i++) $store->begin('guest:batch',['name'=>"tiny-$i.png",'size'=>3,'fingerprint'=>(string)$i,'strategy_id'=>1],null,fn()=>null);
+echo "PASS five small guest uploads bypass large-file slot limit\n";
 foreach (glob($root.'/*/*/meta.json') as $path) { $m=json_decode(file_get_contents($path),true);$m['updated_at']=time()-ChunkUploadStore::TTL-1;file_put_contents($path,json_encode($m)); }
 $store->prune();check(!glob($root.'/*/*/meta.json'),'expired tasks pruned');
 echo "PASS 24-hour cleanup\n";

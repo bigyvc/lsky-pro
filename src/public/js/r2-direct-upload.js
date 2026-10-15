@@ -8,7 +8,7 @@
     const remove = key => { try { root.localStorage.removeItem(key); } catch (_) {} };
 
     async function hashes(file, cancelled, progress) {
-        if (!root.hashwasm || !root.WebAssembly) throw new Error('浏览器不支持直传校验，请选择服务器中转');
+        if (!root.hashwasm || !root.WebAssembly) throw new Error('浏览器不支持上传校验，请升级浏览器后重试');
         const [md5, sha1, partHash] = await Promise.all([
             root.hashwasm.createMD5(), root.hashwasm.createSHA1(), root.hashwasm.createMD5()
         ]);
@@ -53,7 +53,7 @@
                 // Refresh a presigned URL instead of retrying the same expired signature.
                 fail(`R2 HTTP ${xhr.status}：分片上传失败`, [408, 429].includes(xhr.status) || xhr.status >= 500, xhr.status === 403);
             };
-            xhr.onerror = () => fail('无法连接 R2：请检查网络及存储桶的跨域设置，或改用服务器中转', true);
+            xhr.onerror = () => fail('无法连接图片存储，请检查网络或联系管理员检查跨域设置', true);
             xhr.ontimeout = () => fail('R2 分片上传超时，请重试续传', true);
             xhr.onabort = () => { active.delete(xhr); reject(cancelledError()); };
             // Deliberately omit site CSRF headers and cookies on cross-origin R2 PUTs.
@@ -63,8 +63,8 @@
 
     async function run(file, options) {
         const { request, form, strategy, info, progress, active, cancelled } = options;
-        info('正在校验文件…0%');
-        const digest = await hashes(file, cancelled, percent => info(`正在校验文件…${percent}%`));
+        info('上传中…0%');
+        const digest = await hashes(file, cancelled, () => {});
         const strategyId = strategy();
         const key = 'lsky-r2-direct-v1:' + options.url + ':' + strategyId + ':' + file.name + ':' + file.size + ':' + digest.sha1;
         const oldId = get(key);
@@ -82,7 +82,7 @@
         if (!task.uploaded) {
             const received = new Set(task.received);
             const sent = digest.parts.map((part, i) => received.has(i) ? part.size : 0);
-            const draw = () => progress(Math.floor(sent.reduce((a, b) => a + b, 0) / file.size * 100), 'R2 直传中');
+            const draw = () => progress(Math.min(99, Math.floor(sent.reduce((a, b) => a + b, 0) / file.size * 100)));
             draw();
             await root.LskyChunkUpload.workers(digest.parts.map((_, i) => i).filter(i => !received.has(i)), async index => {
                 const blob = file.slice(index * CHUNK_SIZE, Math.min(file.size, (index + 1) * CHUNK_SIZE));
@@ -101,7 +101,8 @@
                 sent[index] = blob.size; draw();
             }, cancelled, CONCURRENCY);
         }
-        info('分片已直传 R2，正在确认文件并保存记录…');
+        progress(99);
+        info('上传中…99%');
         const result = await request('/' + task.id + '/complete', form({}), null, 0);
         remove(key);
         return result;

@@ -49,7 +49,9 @@ $size=354*1024*1024+634*1024;$parts=[];
 for($i=0;$i<ceil($size/App\Services\R2DirectUpload::CHUNK_SIZE);$i++)$parts[]=['size'=>min(App\Services\R2DirectUpload::CHUNK_SIZE,$size-$i*App\Services\R2DirectUpload::CHUNK_SIZE),'md5'=>md5('part'.$i)];
 requestFor();
 $template=view('components.upload',['_group'=>$group,'_is_notice'=>''])->render();
-check(str_contains($template,'id="upload-mode"')&&str_contains($template,'R2 直传'),'administrator sees optional direct-upload selector');
+check(!str_contains($template,'id="upload-mode"'),'administrator uses automatic direct transport without a mode selector');
+$strategiesView=view('layouts.strategies',['_group'=>$group])->render();
+check(str_contains($strategiesView,'data-r2-direct="1"')&&!str_contains($strategiesView,'TEST_SECRET'),'strategy advertises direct capability without credentials');
 $metadata=['name'=>'large.png','size'=>$size,'md5'=>md5('full'),'sha1'=>sha1('full'),'strategy_id'=>$strategy->id,'parts_json'=>json_encode($parts)];
 $images=$app->make(App\Services\ImageService::class);$remote=new FakeR2();$service=new TestDirect($images,$remote);$controller=$app->make(App\Http\Controllers\R2DirectUploadController::class);
 $first=body($controller->begin(requestFor($metadata),$service));check($first['status'],'administrator starts R2 upload');$id=$first['data']['id'];
@@ -126,5 +128,9 @@ check(!str_contains($signed['url'],'TEST_SECRET'),'real signing does not expose 
 $minio=clone $strategy;$minio->key=App\Enums\StrategyKey::Minio;$cfg=$minio->configs;$cfg['access_key']='TEST_MINIO';$cfg['secret_key']='TEST_MINIO_SECRET';$minio->configs=$cfg;
 $minioSigned=(new App\Services\R2UploadGateway($minio))->sign('test.png','upload-id',1,3,md5('abc'));
 check(str_contains($minioSigned['url'],'TEST_MINIO')&&!str_contains($minioSigned['url'],'TEST_MINIO_SECRET'),'R2 configured through MinIO uses its credential field names');
+for ($i=0;$i<5;$i++) {
+ $tiny=['name'=>'tiny-'.$i.'.png','size'=>3,'md5'=>md5('abc'),'sha1'=>sha1('abc'),'strategy_id'=>$strategy->id,'parts_json'=>json_encode([['size'=>3,'md5'=>md5('abc')]])];
+ $started=body($controller->begin(requestFor($tiny),$service));check($started['status'],'small direct uploads do not consume three-large-file slots');
+}
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
 foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);

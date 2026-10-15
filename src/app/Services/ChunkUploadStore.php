@@ -91,17 +91,19 @@ class ChunkUploadStore
             }
             $pending = 0;
             $count = 0;
+            $tasks = 0;
             foreach (glob($base.'/*/meta.json') ?: [] as $path) {
                 $meta = json_decode((string) file_get_contents($path), true);
                 if (($meta['updated_at'] ?? 0) < time() - self::TTL) {
                     $this->removeExpired(dirname($path));
                 } elseif (! isset($meta['result'])) {
                     $pending += $meta['file']['size'];
-                    $count++;
+                    $tasks++;
+                    if ($meta['file']['size'] > self::CHUNK_SIZE) $count++;
                 }
             }
-            if ($count >= 3 || $pending + $metadata['size'] > 1536 * 1024 * 1024) {
-                throw new RuntimeException('待完成的大文件任务过多，请先完成已有任务');
+            if (($metadata['size'] > self::CHUNK_SIZE && $count >= 3) || $tasks >= 1000 || $pending + $metadata['size'] > 1536 * 1024 * 1024) {
+                throw new RuntimeException('待完成上传任务或预留容量过多，请先完成已有任务');
             }
             $reserve($pending);
             $dir = $base.'/'.bin2hex(random_bytes(16));

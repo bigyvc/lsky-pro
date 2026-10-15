@@ -56,9 +56,9 @@ let direct=true,native=0;
 const attach=context.LskyChunkUpload.create(picker,{url:'https://site/upload/chunks',directUrl:'https://site/upload/r2-direct',csrf:'CSRF',strategy:()=>1,useDirect:()=>direct});
 const data={files:[file],$preview:preview,submit:()=>native++,abort(){}};attach(data);await data.submit();
 assert.equal(successes,1);assert.equal(failures,0);assert.equal(maxTransfers,6);assert(!puts.includes(0));assert.equal(puts.filter(p=>p===2).length,2);assert.equal(saved.size,0);assert.equal(refreshes,1);
-direct=false;const small={files:[{size:100,name:'small.png'}],submit:()=>native++,abort(){}};attach(small);small.submit();assert.equal(native,1);
+assert.equal(native,0,'direct never forwards file bytes through native relay');
 await assert.rejects(context.LskyR2Direct.hashes(file,()=>true,()=>{}),e=>e.cancelled);
-console.log('PASS full-file streaming hashes, 1MiB read budget, 50MiB R2 parts, six concurrent PUTs, resume, retry, no CSRF/cookies to R2, relay selectable');
+console.log('PASS full-file streaming hashes, 1MiB read budget, 50MiB R2 parts, six concurrent PUTs, resume, retry, no CSRF/cookies to R2, automatic direct transport');
 
 // Completed HTTP errors must be visible even when the uploader's fail hook throws.
 const originalDirect=context.LskyR2Direct.run;

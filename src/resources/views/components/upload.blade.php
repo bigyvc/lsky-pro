@@ -5,18 +5,9 @@
         <h1 class="text-xl font-semibold text-ink mb-2">上传图片</h1>
         <p class="text-ink-3 text-[13.5px] leading-relaxed">
             最大可上传 {{ \App\Utils::formatSize($_group->configs->get(\App\Enums\GroupConfigKey::MaximumFileSize) * 1024) }} 的图片，上传队列最多
-            {{ $_group->configs->get(\App\Enums\GroupConfigKey::ConcurrentUploadNum) }}
+            {{ $_group->configs->get(\App\Enums\GroupConfigKey::ConcurrentUploadNum) ?: '不限' }}
             张。本站已托管 {{ \App\Models\Image::query()->count() }} 张图片。
         </p>
-        @if(Auth::check() && Auth::user()->is_adminer)
-            <div class="mt-3 flex items-center gap-2 text-sm text-ink-2">
-                <label for="upload-mode">上传方式</label>
-                <select id="upload-mode" class="rounded-lg border border-line bg-surface px-3 py-2">
-                    <option value="relay">服务器中转</option>
-                    <option value="r2-direct">R2 直传（保存原图）</option>
-                </select>
-            </div>
-        @endif
         <div class="mt-3 rounded-xl border-2 border-dotted border-line-2 w-full h-full" id="picker-dnd" onclick="$('#picker').click()">
             <div id="upload-container" class="relative group flex flex-col justify-center items-center gap-4 p-6 w-full h-full min-h-[200px] sm:min-h-[320px] text-ink-3 cursor-pointer">
                 {{-- 原来 hidden group-hover:flex：触屏没有 hover，手机上根本点不到；改成常显半透明 --}}
@@ -114,11 +105,11 @@
     <script src="{{ asset('js/clipboard/clipboard.min.js') }}"></script>
 @endpush
 @push('scripts')
-    <script src="{{ asset('js/chunk-upload.js') }}?v=20261016-2"></script>
+    <script src="{{ asset('js/chunk-upload.js') }}?v=20261016-3"></script>
     @if(Auth::check() && Auth::user()->is_adminer)
         <script src="{{ asset('js/hash-wasm/md5.umd.min.js') }}?v=4.12.0"></script>
         <script src="{{ asset('js/hash-wasm/sha1.umd.min.js') }}?v=4.12.0"></script>
-        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261016-2"></script>
+        <script src="{{ asset('js/r2-direct-upload.js') }}?v=20261016-3"></script>
     @endif
     <script>
         let allowSuffixes = @json($_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes));
@@ -162,7 +153,7 @@
             url: '{{ url('upload/chunks') }}',
             fileConcurrency: {{ $_group->configs->get(\App\Enums\GroupConfigKey::ConcurrentUploadNum, 3) }},
             directUrl: {{ (Auth::check() && Auth::user()->is_adminer) ? Illuminate\Support\Js::from(url('upload/r2-direct')) : 'null' }},
-            useDirect: () => $('#upload-mode').val() === 'r2-direct',
+            useDirect: () => $('#strategy-selected').data('r2-direct') === 1,
             csrf: $('meta[name="csrf-token"]').attr('content'),
             strategy: () => $('#strategy-selected').data('id')
         });

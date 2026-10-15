@@ -62,5 +62,5 @@ assert.equal(partRequests.filter(i=>i===2).length,2,'failed part retries');
 assert.equal(saved.size,0,'successful completion clears resume identity');
 // An explicit file limit of one preserves serial relay uploads.
 peak=0;const a={files:[file('a.png')],$preview:preview},b={files:[file('b.png')],$preview:preview};attach(a);attach(b);await Promise.all([a.submit(),b.submit()]);assert.equal(peak,3);assert.equal(done,3);
-let nativeCalls=0;const small={files:[{size:50*MiB}],submit:()=>nativeCalls++};attach(small);small.submit();assert.equal(nativeCalls,1);
+let nativeCalls=0;const small={files:[file('small.png')],$preview:preview,submit:()=>nativeCalls++};small.files[0].size=100;attach(small);await small.submit();assert.equal(nativeCalls,0);assert.equal(done,4,'small relay files use the chunk completion path');
 console.log('PASS 50 MiB / 3 workers; retry; resume skips accepted parts; whole-page concurrency; completion; small-file compatibility');

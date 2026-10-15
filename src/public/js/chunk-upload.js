@@ -111,23 +111,16 @@
         }
         return function attach(data) {
             const file = data.files[0];
-            if (file.size <= CHUNK_SIZE && !options.directUrl) return;
-            const nativeSubmit = typeof data.submit === 'function' ? data.submit.bind(data) : () => {};
-            const nativeAbort = typeof data.abort === 'function' ? data.abort.bind(data) : () => {};
-            let nativeActive = false;
             let cancelled = false;
             let running = false;
             const active = new Set();
             data.abort = function () {
-                if (nativeActive) { nativeAbort(); return; }
                 cancelled = true;
                 active.forEach(xhr => xhr.abort());
             };
             data.submit = function () {
                 if (running) return data._chunkPromise;
                 const direct = Boolean(options.directUrl && options.useDirect && options.useDirect());
-                if (!direct && file.size <= CHUNK_SIZE) { nativeActive = true; return nativeSubmit(); }
-                nativeActive = false;
                 running = true;
                 cancelled = false;
                 const run = async () => {
@@ -146,13 +139,13 @@
                     try {
                         if (cancelled) return;
                         data.$preview.find('[data-operate="upload"]').hide();
-                        info('准备分片上传…');
+                        info('上传中…0%');
                         if (direct) {
                             const result = await root.LskyR2Direct.run(file, {
                                 url: options.directUrl, request, form, strategy: options.strategy, info, active,
                                 cancelled: () => cancelled,
-                                progress: (percent, label) => {
-                                    info(`${label}…${percent}%`);
+                                progress: (percent) => {
+                                    info(`上传中…${percent}%`);
                                     data.$preview.find('.upload-progress').css('width', percent + '%');
                                 }
                             });
@@ -180,8 +173,8 @@
                             const sent = Array.from({ length: count }, (_, index) => received.has(index)
                                 ? Math.min(CHUNK_SIZE, file.size - index * CHUNK_SIZE) : 0);
                             const renderProgress = () => {
-                                const percent = Math.floor(sent.reduce((a, b) => a + b, 0) / file.size * 100);
-                                info(`分片上传中…${percent}%`);
+                                const percent = Math.min(99, Math.floor(sent.reduce((a, b) => a + b, 0) / file.size * 100));
+                                info(`上传中…${percent}%`);
                                 data.$preview.find('.upload-progress').css('width', percent + '%');
                             };
                             renderProgress();
@@ -198,7 +191,7 @@
                                     sent[index] = blob.size;
                                     renderProgress();
                                 }, () => cancelled);
-                            info('文件已传完，正在合并并保存到存储…');
+                            info('上传中…99%');
                             // No browser timeout for server-side processing; retries return cached completion.
                             result = await request('/' + state.id + '/complete', form({}), null, 0);
                         }

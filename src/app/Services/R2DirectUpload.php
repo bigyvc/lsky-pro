@@ -109,17 +109,18 @@ class R2DirectUpload
 
     private function pendingBytes(int $userId): array
     {
-        $bytes = 0; $count = 0;
+        $bytes = 0; $count = 0; $large = 0;
         $hash = hash('sha256', 'user:'.$userId);
         foreach ([$this->root().'/'.$hash, storage_path('app/upload-chunks/'.$hash)] as $base) {
             foreach (glob($base.'/*/meta.json') ?: [] as $path) {
                 $meta = json_decode((string) file_get_contents($path), true);
                 if (($meta['updated_at'] ?? 0) >= time() - self::TTL && ! isset($meta['result']) && ($meta['phase'] ?? '') !== 'aborted') {
                     $bytes += $meta['file']['size']; $count++;
+                    if ($meta['file']['size'] > self::CHUNK_SIZE) $large++;
                 }
             }
         }
-        return [$bytes, $count];
+        return [$bytes, $count, $large];
     }
 
     private function checkedParts(array $meta, R2UploadGateway $gateway): array
@@ -210,8 +211,8 @@ class R2DirectUpload
                     return $this->state($dir, $meta, $strategy);
                 });
             }
-            [$pending, $count] = $this->pendingBytes($user->id);
-            if ($count >= 3) throw new UploadException('请先完成已有的大文件上传任务');
+            [$pending, $count, $large] = $this->pendingBytes($user->id);
+            if (($file['size'] > self::CHUNK_SIZE && $large >= 3) || $count >= 1000) throw new UploadException('请先完成已有的上传任务');
             if (($pending + $file['size']) / 1024 + $user->images()->sum('size') > $user->capacity) throw new UploadException('储存空间不足（包含待完成上传的预留容量）');
             $id = bin2hex(random_bytes(16));
             $dir = $this->directory($user->id, $id);
