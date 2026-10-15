@@ -124,6 +124,8 @@ TG 缓存清理仍是宿主机 systemd timer，不由 `docker compose up` 自动
 
 ## 8. 更新、停止与备份
 
+新服务器的 GitHub 私有仓库备份及每日定时任务见 [GitHub 备份操作流程](github-backup.md)。旧服务器的备份任务不会自动迁到新服务器。
+
 重新进入 shell 后先按所选方式重新定义 `LSKY_STACK` 数组。保持同一个项目名、同一份 env 和相同数据目录。
 
 方式 A 更新图床：
