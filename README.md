@@ -345,6 +345,8 @@ TG API 只在需要更新时单独 build/up；不要为普通 Lsky 更新重建�
 
 ## 更多说明与许可
 
+- [浏览器与 iPhone 主屏幕图标](docs/site-icons.md)
+
 - [统一部署与本地构建](docs/docker-stack.md)
 - [TG 策略与共享目录](docs/telegram-storage.md)
 - [R2 直传](docs/r2-direct-upload.md)、[服务器分片上传](docs/chunk-upload.md)

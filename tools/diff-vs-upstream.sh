@@ -315,6 +315,8 @@ src/app/Enums/StrategyKey.php
 src/app/Models/Strategy.php
 #   src/app/Http/Requests/Admin/StrategyRequest.php（rules / attributes 加 Telegram 分支）
 src/app/Http/Requests/Admin/StrategyRequest.php
+# Browser / iPhone Photos favicon replacing the upstream default; other page logos unchanged.
+src/public/favicon.ico
 EOF
 )
 # 去掉注释/空行/行尾空白，得到排序后的文件清单
