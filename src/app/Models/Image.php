@@ -223,6 +223,7 @@ class Image extends Model
     public function thumbUrl(): Attribute
     {
         return new Attribute(function () {
+            if (\App\Services\VideoMetadata::isVideo($this->extension)) return asset('static/video.svg');
             $pathname = $this->getThumbnailPathname();
 
             // 没有缩略图则返回原图
@@ -237,14 +238,26 @@ class Image extends Model
 
     public function links(): Attribute
     {
-        return new Attribute(fn() => collect([
-            'url' => $this->url,
-            'html' => "&lt;img src=\"{$this->url}\" alt=\"{$this->origin_name}\" title=\"{$this->origin_name}\" /&gt;",
-            'bbcode' => "[img]{$this->url}[/img]",
-            'markdown' => "![{$this->origin_name}]({$this->url})",
-            'markdown_with_link' => "[![{$this->origin_name}]({$this->url})]({$this->url})",
-            'thumbnail_url' => $this->thumb_url,
-        ]));
+        return new Attribute(function () {
+            if (\App\Services\VideoMetadata::isVideo($this->extension)) {
+                return collect([
+                    'url'=>$this->url,
+                    'html'=>"&lt;video controls playsinline src=\"{$this->url}\"&gt;&lt;/video&gt;",
+                    'bbcode'=>"[url={$this->url}]{$this->origin_name}[/url]",
+                    'markdown'=>"[{$this->origin_name}]({$this->url})",
+                    'markdown_with_link'=>"[{$this->origin_name}]({$this->url})",
+                    'thumbnail_url'=>$this->thumb_url,
+                ]);
+            }
+            return collect([
+                'url' => $this->url,
+                'html' => "&lt;img src=\"{$this->url}\" alt=\"{$this->origin_name}\" title=\"{$this->origin_name}\" /&gt;",
+                'bbcode' => "[img]{$this->url}[/img]",
+                'markdown' => "![{$this->origin_name}]({$this->url})",
+                'markdown_with_link' => "[![{$this->origin_name}]({$this->url})]({$this->url})",
+                'thumbnail_url' => $this->thumb_url,
+            ]);
+        });
     }
 
     public function filesystem(): Filesystem

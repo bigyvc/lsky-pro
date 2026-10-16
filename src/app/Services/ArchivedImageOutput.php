@@ -16,6 +16,7 @@ class ArchivedImageOutput
         $etag = '"'.$image->sha1.'"';
         $headers = ['Content-Type'=>$image->mimetype, 'ETag'=>$etag,
             'Accept-Ranges'=>'bytes', 'Cache-Control'=>'public, max-age=3600', 'X-Content-Type-Options'=>'nosniff'];
+        if (in_array($image->extension, ['hevc','h265'], true)) $headers['Content-Disposition'] = 'attachment';
         if ($request->header('If-None-Match') === $etag && !$request->header('Range')) {
             fclose($stream); return response()->stream(fn()=>null, 304, $headers);
         }

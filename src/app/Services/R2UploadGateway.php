@@ -35,6 +35,7 @@ class R2UploadGateway
         return (string) $this->client->createMultipartUpload([
             'Bucket' => $this->bucket, 'Key' => $key, 'ContentType' => $mime,
             'Metadata' => ['lsky-direct-id' => $id],
+            'ContentDisposition' => $mime === 'video/h265' ? 'attachment' : 'inline',
         ])['UploadId'];
     }
 
@@ -110,6 +111,13 @@ class R2UploadGateway
             foreach ($page['Contents'] ?? [] as $object) $bytes += (int) $object['Size'];
         }
         return $bytes;
+    }
+
+    public function videoMetadata(string $key, string $name): array
+    {
+        $command = $this->client->getCommand('GetObject', ['Bucket'=>$this->bucket,'Key'=>$key]);
+        $url = (string)$this->client->createPresignedRequest($command, '+2 minutes')->getUri();
+        return app(VideoMetadata::class)->inspect($url, $name, true);
     }
 
     public function readStream(string $key)

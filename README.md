@@ -1,5 +1,7 @@
 # Lsky Pro：R2 直传 + Telegram 存储 + 自动归档
 
+> **实验分支 `test/video-hevc`**：加入视频与HEVC支持，仅用于独立测试，不更新正式站点。先阅读 [分支范围、启用与限制](docs/video-hevc.md)。
+
 基于 [Lsky Pro](https://github.com/lsky-org/lsky-pro) 的自维护 Docker Fork，保留多用户、图片标签、裁剪、明暗主题及手机端支持。
 
 镜像：`ghcr.io/bigyvc/lsky-pro-docker:latest`（amd64 / arm64）。TG API 与 Lsky 是两个独立容器，用一份 Compose 管理。TG API 基于 aiogram 的非官方预编译镜像适配共享目录权限，不在 VPS 上从零编译 TDLib。

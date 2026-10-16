@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Enums\GroupConfigKey;
 use App\Enums\ConfigKey;
 
-$extensions = config('convention.group.accepted_file_suffixes');
+$extensions = array_merge(config('convention.group.accepted_file_suffixes'), \App\Services\VideoMetadata::EXTENSIONS);
 Route::middleware('cache.headers:public;max_age=2628000;etag')->group(function () use ($extensions) {
     $extensions = array_merge(array_map('strtoupper', $extensions), array_map('strtolower', $extensions));
     Route::any('{key}.{extension}', [

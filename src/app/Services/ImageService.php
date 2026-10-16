@@ -150,11 +150,20 @@ class ImageService
             $image->permission = $user->configs->get(UserConfigKey::DefaultPermission, ImagePermission::Private);
         }
 
+        $isVideo = VideoMetadata::isVideo($extension);
+        $video = null;
+        if ($isVideo) {
+            if ($configs->get(GroupConfigKey::IsEnableScan) || $configs->get(GroupConfigKey::IsEnableWatermark)) {
+                throw new UploadException('当前角色组要求图片审查或水印，不能用于视频上传，请单独配置视频角色');
+            }
+            $video = app(VideoMetadata::class)->inspect($file->getRealPath(), $file->getClientOriginalName());
+        }
+
         // 上传频率限制
         $this->rateLimiter($configs, $request);
 
         // Large files retain their original bytes; avoid decoding huge PNGs before streaming to storage.
-        $safeToProcess = $this->canProcessImage($file);
+        $safeToProcess = !$isVideo && $this->canProcessImage($file);
         // 图片处理，跳过 ico gif
         if ($safeToProcess && ! in_array($extension, ['ico', 'gif'])) {
             // 图片保存质量与格式
@@ -209,7 +218,7 @@ class ImageService
         );
         $pathname = (new \League\Flysystem\WhitespacePathNormalizer())->normalizePath($filename.".{$extension}");
 
-        [$width, $height] = @getimagesize($file->getRealPath()) ?: [400, 400];
+        [$width, $height] = $video ?: (@getimagesize($file->getRealPath()) ?: [400, 400]);
 
         $image->fill([
             'md5' => md5_file($file->getRealPath()),
@@ -218,7 +227,7 @@ class ImageService
             'name' => basename($pathname),
             'origin_name' => $file->getClientOriginalName(),
             'size' => $file->getSize() / 1024,
-            'mimetype' => $file->getMimeType(),
+            'mimetype' => $video['mime'] ?? $file->getMimeType(),
             'extension' => strtolower($extension),
             'width' => $width,
             'height' => $height,
@@ -291,7 +300,7 @@ class ImageService
         }
 
         // 图片检测，跳过 tif、ico、psd 格式
-        if ($configs->get(GroupConfigKey::IsEnableScan) && ! in_array($extension, ['psd', 'ico', 'tif'])) {
+        if (!$isVideo && $configs->get(GroupConfigKey::IsEnableScan) && ! in_array($extension, ['psd', 'ico', 'tif'])) {
             $scanConfigs = $configs->get(GroupConfigKey::ScanConfigs);
             if ($this->scan(
                 driver: $scanConfigs['driver'],

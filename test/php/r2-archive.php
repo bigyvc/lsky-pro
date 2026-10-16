@@ -127,5 +127,15 @@ $zeroAdapter=new RenewTelegram('TEST_TOKEN','-100001',$tg->id,'http://telegram-b
 $zeroAdapter->filePath=$work.'/tg/123/documents/zero.png';$zeroAdapter->remotePath=$work.'/remote-copy';
 $handle=$zeroAdapter->readStream($zero->pathname);check(stream_get_contents($handle)==='cache-original','guest image pathname resolves the existing zero-directory Telegram mapping');fclose($handle);
 foreach (['',null] as $empty) {$zero->path=$empty;check($zero->pathname==='zero.png','empty root directory remains unprefixed');}
+if (getenv('LSKY_TEST_VIDEO')) {
+ require __DIR__.'/video-fixtures.php';$fixtures=videoFixtures($work);
+ $bytes=file_get_contents($fixtures['mp4']);$video=imageAt('hevc.mp4',$bytes);$video->forceFill(['extension'=>'mp4','mimetype'=>'video/mp4','width'=>64,'height'=>48])->save();
+ $policy->update(['enabled'=>true,'requested'=>true,'target_bytes'=>0]);$service->run();
+ $video=$video->fresh();$videoJob=App\Models\R2ArchiveJob::where('image_id',$video->id)->first();
+ check($videoJob && $videoJob->phase==='done' && $video->strategy_id===$tg->id && !$src->fileExists('1/hevc.mp4'),'HEVC video archive verifies destination and releases R2 source');
+ $request=Illuminate\Http\Request::create('/archive','GET',['path'=>'1/hevc.mp4'],[],[],['HTTP_RANGE'=>'bytes=0-15']);
+ $response=$controller->archived($request,$r2->id);ob_start();$response->sendContent();$prefix=ob_get_clean();
+ check($response->getStatusCode()===206 && $response->headers->get('Content-Type')==='video/mp4' && $prefix===substr($bytes,0,16),'archived video old path preserves MIME and seekable byte output');
+}
 check(memory_get_peak_usage(true)<64*1024*1024,'migration and streaming stay within configured memory limit');
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);

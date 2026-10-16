@@ -6,7 +6,7 @@ putenv('APP_ENV=testing');putenv('APP_KEY=base64:'.base64_encode(random_bytes(32
 $app=require $source.'/bootstrap/app.php';$app->useStoragePath($work.'/storage');
 foreach(['framework/cache/data','framework/sessions','framework/views','logs','app'] as $p)mkdir($work.'/storage/'.$p,0700,true);
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
+set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL.(getenv("LSKY_TEST_TRACE")?$e->getTraceAsString():""));exit(1);});
 config(['database.default'=>'sqlite','database.connections.sqlite.database'=>':memory:','cache.default'=>'array','session.driver'=>'array']);
 Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
 Illuminate\Support\Facades\Cache::forever('configs',collect(config('convention.app')));
@@ -30,7 +30,7 @@ class TestTelegram extends App\Filesystem\TelegramAdapter {
 class TestImageService extends App\Services\ImageService {
  public TestTelegram $adapter;
  public function getAdapter(App\Models\Strategy $s):League\Flysystem\FilesystemAdapter{return $this->adapter;}
- public function makeThumbnail(App\Models\Image $i,mixed $data,int $max=400,bool $force=false):void{}
+ public function makeThumbnail(App\Models\Image $i,mixed $data,int $max=400,bool $force=false):void{if(App\Services\VideoMetadata::isVideo($i->extension))throw new Exception("video thumbnail decoding attempted");}
 }
 $base=array_merge(config('convention.group'),[App\Enums\GroupConfigKey::MaximumFileSize=>524288,
  App\Enums\GroupConfigKey::ImageSaveQuality=>100,App\Enums\GroupConfigKey::IsEnableWatermark=>false,
@@ -66,6 +66,27 @@ $sent=$adapter->sent;$filesystem->move('copy.png','copy.png');check($adapter->se
 $adapter->badSize=true;$stream=fopen('php://temp','w+b');fwrite($stream,'abc');rewind($stream);
 try{$adapter->writeStream('bad-size.png',$stream,new League\Flysystem\Config());throw new Exception('expected mismatch');}
 catch(League\Flysystem\UnableToWriteFile $e){check(!App\Models\TelegramFile::where('path','bad-size.png')->exists() && in_array($adapter->sent,$adapter->deleted),'mismatched upload cleans the new message and creates no mapping');}finally{fclose($stream);}$adapter->badSize=false;
+if (getenv('LSKY_TEST_VIDEO')) {
+ require __DIR__.'/video-fixtures.php';
+ $fixtures=videoFixtures($work);
+ $group->update(['configs'=>array_merge($base,[App\Enums\GroupConfigKey::AcceptedFileSuffixes=>array_merge($base[App\Enums\GroupConfigKey::AcceptedFileSuffixes],App\Services\VideoMetadata::EXTENSIONS)])]);
+ foreach($fixtures as $ext=>$fixture) {
+  $metadata=app(App\Services\VideoMetadata::class)->inspect($fixture,'clip.'.$ext);
+  check($metadata[0]===64 && $metadata[1]===48 && ($ext==='webm'?$metadata['codec']==='vp9':$metadata['codec']==='hevc'),'actual video metadata '.$ext);
+  $bytes=file_get_contents($fixture);$row=upload($bytes,'clip.'.$ext);
+  check($row->mimetype===App\Services\VideoMetadata::mime($ext) && $row->width===64 && $row->height===48,'TG video uses canonical MIME and dimensions '.$ext);
+  check(str_contains($row->thumb_url,'static/video.svg') && !str_contains($row->links['markdown'],'!['),'video placeholder and download links '.$ext);
+  $response=app(App\Services\ArchivedImageOutput::class)->response(Illuminate\Http\Request::create('/'.$row->key.'.'.$ext,'GET',[],[],[],['HTTP_RANGE'=>'bytes=0-15']),$row);
+  ob_start();$response->sendContent();$chunk=ob_get_clean();check($response->getStatusCode()===206 && $chunk===substr($bytes,0,16),'TG video Range byte output '.$ext);
+ }
+ foreach(['fake.mp4','fake.mov','fake.webm','fake.hevc','fake.h265'] as $name) {
+  try {upload($png,$name);throw new Exception('renamed image accepted as video');}
+  catch(App\Exceptions\UploadException $e) {check(true,'renamed non-video rejected '.$name);}
+ }
+ $group->update(['configs'=>array_merge($base,[App\Enums\GroupConfigKey::AcceptedFileSuffixes=>array_merge($base[App\Enums\GroupConfigKey::AcceptedFileSuffixes],App\Services\VideoMetadata::EXTENSIONS),App\Enums\GroupConfigKey::IsEnableScan=>true])]);
+ try {upload(file_get_contents($fixtures['mp4']),'scan.mp4');throw new Exception('image scan bypassed');}
+ catch(App\Exceptions\UploadException $e) {check(str_contains($e->getMessage(),'审查'),'video cannot silently bypass required image scan');}
+}
 App\Models\TelegramFile::saving(function($row){if($row->path==='failed-map.png')throw new RuntimeException('database unavailable');});
 $stream=fopen('php://temp','w+b');fwrite($stream,'abc');rewind($stream);
 try{$adapter->writeStream('failed-map.png',$stream,new League\Flysystem\Config());throw new Exception('expected mapping failure');}
