@@ -2,6 +2,7 @@
 # New unified stack: online SQLite + configuration backup. Never backs up images.
 set -euo pipefail
 umask 077
+trap 'echo "备份失败（退出码 $?），未完成全部步骤；请检查上方错误。" >&2' ERR
 BASE=/opt/lsky/backup
 CONFIG="$BASE/config"
 [[ -f "$CONFIG" ]] || { echo "缺少 $CONFIG（设置 BACKUP_REPO=owner/private-repo）" >&2; exit 1; }
@@ -11,9 +12,12 @@ source "$CONFIG"
 BRANCH=dayv-io
 TOKEN="$BASE/github-token"
 [[ -s "$TOKEN" ]] || { echo '缺少 github-token' >&2; exit 1; }
-for command in python3 git tar flock docker; do command -v "$command" >/dev/null; done
+for command in python3 git tar flock docker; do
+  command -v "$command" >/dev/null || { echo "缺少命令：$command" >&2; exit 1; }
+done
 exec 9>"$BASE/run.lock"
 flock -n 9 || { echo '备份已在运行'; exit 0; }
+echo '1/4 核对私有仓库与运行中的数据库配置…'
 # Refuse public repositories; do not log credentials or the API response.
 python3 - "$TOKEN" "$BACKUP_REPO" <<'PY'
 import json, sys, urllib.request
@@ -26,12 +30,21 @@ except Exception:
     sys.exit('备份停止：无法确认目标仓库为私有，请检查仓库名、PAT 和网络')
 PY
 # Verify the running application's actual database configuration, not merely a leftover file.
-DB_CONFIG=$(docker exec "${BACKUP_CONTAINER:-lsky-pro}" php -r '
-$app=require "/var/www/html/bootstrap/app.php";
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-$db=$app->make("db")->connection();
-echo json_encode(["driver"=>$db->getDriverName(),"path"=>$db->getConfig("database")]);
-')
+if ! DB_CONFIG=$(docker exec "${BACKUP_CONTAINER:-lsky-pro}" php -r '
+try {
+    require "/var/www/html/vendor/autoload.php";
+    $app=require "/var/www/html/bootstrap/app.php";
+    $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+    $db=$app->make("db")->connection();
+    echo json_encode(["driver"=>$db->getDriverName(),"path"=>$db->getConfig("database")]);
+} catch (Throwable $e) {
+    fwrite(STDERR, "无法读取图床数据库配置，请检查容器、依赖与应用状态。\n");
+    exit(1);
+}
+'); then
+    echo '备份停止：数据库配置检查失败，尚未打包或推送。' >&2
+    exit 1
+fi
 export DB_CONFIG
 python3 - <<'PYDB'
 import json, os, sys
@@ -43,6 +56,7 @@ except Exception:
 PYDB
 WORK=$(mktemp -d "$BASE/work.XXXXXXXX")
 trap 'rm -rf -- "$WORK"' EXIT
+echo '2/4 在线备份 SQLite 并收集配置…'
 STAGE="$WORK/stage"
 mkdir -p "$STAGE"
 python3 - "$STAGE" <<'PY'
@@ -65,6 +79,7 @@ with sqlite3.connect(src.as_uri()+'?mode=ro',uri=True,timeout=30) as s, sqlite3.
     if d.execute('PRAGMA integrity_check').fetchone()[0]!='ok': sys.exit('SQLite 备份校验失败')
 (root/'backup-info.json').write_text(json.dumps({'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'site':'dayv.io','contents':'SQLite and deployment configuration; no image objects, TG API state/cache or pending uploads'},ensure_ascii=False,indent=2))
 PY
+echo '3/4 打包并检查大小…'
 tar -czf "$WORK/dayv-io-backup.tar.gz" -C "$STAGE" .
 [[ $(stat -c %s "$WORK/dayv-io-backup.tar.gz") -lt 94371840 ]] || { echo '备份超过90MiB，停止推送，请改用对象存储备份' >&2; exit 1; }
 cat > "$WORK/askpass" <<'ASK'
@@ -76,6 +91,7 @@ esac
 ASK
 chmod 700 "$WORK/askpass"
 export GIT_ASKPASS="$WORK/askpass" GIT_TERMINAL_PROMPT=0
+echo '4/4 推送 GitHub 私有备份分支…'
 REPO="$WORK/repo"
 git init -q -b "$BRANCH" "$REPO"
 git -C "$REPO" config user.name lsky-backup

@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -21,6 +22,35 @@ class BackupTest(unittest.TestCase):
     def test_other_database_does_not_back_up_stale_sqlite(self):
         for cfg in [{'driver': 'mysql', 'path': '/var/www/html/database/database.sqlite'}, {'driver': 'sqlite', 'path': '/different.sqlite'}]:
             self.assertNotEqual(self.verify_config(cfg).returncode, 0)
+
+    def test_database_probe_bootstraps_autoloader_before_application(self):
+        php = os.environ.get('LSKY_TEST_PHP') or shutil.which('php')
+        if not php:
+            self.skipTest('PHP runtime unavailable')
+        probe = SCRIPT.split("php -r '\n", 1)[1].split("\n')", 1)[0]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'vendor').mkdir()
+            (root / 'bootstrap').mkdir()
+            (root / 'vendor/autoload.php').write_text("""<?php
+class ProbeApp { function make($name) { return new ProbeService(); } }
+class ProbeService {
+ function bootstrap() {}
+ function connection() { return $this; }
+ function getDriverName() { return 'sqlite'; }
+ function getConfig($name) { return '/var/www/html/database/database.sqlite'; }
+}
+""")
+            (root / 'bootstrap/app.php').write_text('<?php return new ProbeApp();')
+            code = probe.replace('/var/www/html', str(root))
+            result = subprocess.run([php, '-r', code], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['driver'], 'sqlite')
+            # The original missing-autoloader bug must return failure, not empty success.
+            (root / 'vendor/autoload.php').unlink()
+            failed = subprocess.run([php, '-r', code], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertNotIn('TEST_SECRET', failed.stderr)
 
     def test_snapshot_has_mapping_and_configuration(self):
         with tempfile.TemporaryDirectory() as temp:

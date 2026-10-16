@@ -75,3 +75,10 @@ systemctl list-timers lsky-github-backup.timer
 恢复需先备份现状，停止 Lsky 和归档任务、TG 缓存清理任务，再还原数据库及匹配 APP_KEY 的 .env；清理旧 WAL/SHM 只能在所有数据库连接关闭且已备份后操作。恢复配置时核对宿主路径、UID/GID、网络、防火墙和域名。用原 Bot 凭据重建本地 TG API，先验证登录与 getFile、共享目录权限，再启动 Lsky。不能把新机安装向导生成的新数据库与旧 .env 混用。
 
 恢复后先关闭自动归档，核对 R2 现存对象与 TG 映射，验证普通图片、TG 图片和已归档旧链接，再恢复自动归档和清理。备份只代表快照时刻；快照后新增记录不在备份中，且归档迁移可能已改变对象位置。因此定期备份不能代替恢复演练或对象保留策略。
+
+
+## 5. 备份立即退出、导致更新没有执行
+
+若使用 `set -e` 串联备份与更新，备份失败会阻止后面的 pull/up。不要直接跳过备份；先 `git -C /opt/lsky/source pull --ff-only origin master` 更新主机脚本，再单独执行 `bash /opt/lsky/source/tools/backup-github.sh`。源码目录更新不会自行改动运行中的应用。
+
+数据库配置探测必须先 require `vendor/autoload.php` 再 bootstrap/app.php。此前遗漏自动加载时，关闭错误显示的 PHP 可能只返回失败退出码；新版显式捕获探测失败并显示阶段提示，不打印凭据或完整配置。已增加真实 PHP 启动顺序回归。确认出现“备份成功”后才继续拉取镜像、重建图床。
