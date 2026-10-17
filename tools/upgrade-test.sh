@@ -634,8 +634,8 @@ assert_eq "$LOGDIR/phase4b-out.out" HAS_TAGS        "yes" "tags 表被自动建�
 assert_eq "$LOGDIR/phase4b-out.out" HAS_IMAGE_TAG   "yes" "image_tag 表被自动建好"
 assert_eq "$LOGDIR/phase4b-out.out" HAS_TELEGRAM_FILES "yes" "telegram_files 表被自动建好"
 assert_eq "$LOGDIR/phase4b-out.out" HAS_R2_ARCHIVE "yes" "R2 归档两张表被自动建好"
-assert_eq "$LOGDIR/phase4b-out.out" MIGRATIONS_ROWS "14"  "记账表涨到 14 条（上游 10 + fork 4）"
-assert_eq "$LOGDIR/phase4b-out.out" VOLUME_MIGRATION_FILES "14" "缺失的迁移文件被自动补进卷"
+assert_eq "$LOGDIR/phase4b-out.out" MIGRATIONS_ROWS "15"  "记账表涨到 15 条（上游 10 + fork 5）"
+assert_eq "$LOGDIR/phase4b-out.out" VOLUME_MIGRATION_FILES "15" "缺失的迁移文件被自动补进卷"
 assert_eq "$LOGDIR/phase4b-out.out" DB_ROWS         "$(key "$SNAP_BEFORE" DB_ROWS)"        "哨兵行数没变"
 assert_eq "$LOGDIR/phase4b-out.out" DB_FINGERPRINT  "$(key "$SNAP_BEFORE" DB_FINGERPRINT)" "哨兵数据指纹逐字节不变"
 dbk=$(key "$LOGDIR/phase4b-out.out" AUTO_BACKUPS)

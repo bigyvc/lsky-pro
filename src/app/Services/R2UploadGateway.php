@@ -115,6 +115,9 @@ class R2UploadGateway
 
     public function videoMetadata(string $key, string $name): array
     {
+        if (strtolower(pathinfo($name, PATHINFO_EXTENSION)) === 'm3u8') {
+            return app(VideoMetadata::class)->playlist($this->header($key, 1048577));
+        }
         $command = $this->client->getCommand('GetObject', ['Bucket'=>$this->bucket,'Key'=>$key]);
         $url = (string)$this->client->createPresignedRequest($command, '+2 minutes')->getUri();
         return app(VideoMetadata::class)->inspect($url, $name, true);

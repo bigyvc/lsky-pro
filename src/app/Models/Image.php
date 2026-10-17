@@ -92,6 +92,7 @@ class Image extends Model
         'size' => 'float',
         'is_unhealthy' => 'bool',
         'permission' => 'integer',
+        'video_download_enabled' => 'boolean',
     ];
 
     protected ?Filesystem $filesystem = null;
@@ -242,6 +243,7 @@ class Image extends Model
             if (\App\Services\VideoMetadata::isVideo($this->extension)) {
                 return collect([
                     'url'=>$this->url,
+                    'share_url'=>route('video.share', ['key'=>$this->key]),
                     'html'=>"&lt;video controls playsinline src=\"{$this->url}\"&gt;&lt;/video&gt;",
                     'bbcode'=>"[url={$this->url}]{$this->origin_name}[/url]",
                     'markdown'=>"[{$this->origin_name}]({$this->url})",

@@ -93,6 +93,9 @@ class R2DirectUpload
         }
         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         if (! in_array($extension, $configs->get(GroupConfigKey::AcceptedFileSuffixes, []))) throw new UploadException('不支持的文件类型');
+        if (VideoMetadata::isVideo($extension) && $file['size'] > ($extension === 'm3u8' ? 1048576 : 512*1024*1024)) {
+            throw new UploadException($extension === 'm3u8' ? 'M3U8播放列表不能超过1MiB' : '视频不能超过512MiB');
+        }
         if ($file['size'] / 1024 > $configs->get(GroupConfigKey::MaximumFileSize)) throw new UploadException('图片大小超出限制');
         return $strategy;
     }

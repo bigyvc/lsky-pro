@@ -8,15 +8,16 @@ foreach(['framework/cache/data','framework/sessions','framework/views','logs','a
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 config(['database.default'=>'sqlite','database.connections.sqlite.database'=>':memory:','cache.default'=>'array','session.driver'=>'array']);
 Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
-// Simulate an installed 13-migration database, then apply only the new additive migration.
+// Remove the archival migration from an otherwise current database, then reapply it.
+$migrationCount=Illuminate\Support\Facades\DB::table('migrations')->count();
 Illuminate\Support\Facades\Schema::drop('r2_archive_jobs');Illuminate\Support\Facades\Schema::drop('r2_archive_policies');
 Illuminate\Support\Facades\DB::table('migrations')->where('migration','2026_10_14_120000_create_r2_archive_tables')->delete();
 Illuminate\Support\Facades\DB::table('groups')->insert(['name'=>'migration-sentinel','configs'=>'{}','is_guest'=>false]);
 $sentinelBefore=json_encode(Illuminate\Support\Facades\DB::table('groups')->where('name','migration-sentinel')->first());
 Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
 $sentinelAfter=json_encode(Illuminate\Support\Facades\DB::table('groups')->where('name','migration-sentinel')->first());
-if ($sentinelBefore!==$sentinelAfter || Illuminate\Support\Facades\DB::table('migrations')->count()!==14) throw new Exception('additive upgrade changed existing data');
-echo "PASS upgrade from 13 migrations adds archival tables without modifying existing rows\n";
+if ($sentinelBefore!==$sentinelAfter || Illuminate\Support\Facades\DB::table('migrations')->count()!==$migrationCount) throw new Exception('additive upgrade changed existing data');
+echo "PASS upgrade adds archival tables without modifying existing rows\n";
 set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
 function check($yes,$label){if(!$yes)throw new Exception($label);echo "PASS $label\n";}
 mkdir($work.'/r2');mkdir($work.'/tg');
@@ -129,9 +130,10 @@ $handle=$zeroAdapter->readStream($zero->pathname);check(stream_get_contents($han
 foreach (['',null] as $empty) {$zero->path=$empty;check($zero->pathname==='zero.png','empty root directory remains unprefixed');}
 if (getenv('LSKY_TEST_VIDEO')) {
  require __DIR__.'/video-fixtures.php';$fixtures=videoFixtures($work);
- $bytes=file_get_contents($fixtures['mp4']);$video=imageAt('hevc.mp4',$bytes);$video->forceFill(['extension'=>'mp4','mimetype'=>'video/mp4','width'=>64,'height'=>48])->save();
+ $bytes=file_get_contents($fixtures['mp4']);$video=imageAt('hevc.mp4',$bytes);$video->forceFill(['extension'=>'mp4','mimetype'=>'video/mp4','width'=>64,'height'=>48,'video_download_enabled'=>true])->save();
  $policy->update(['enabled'=>true,'requested'=>true,'target_bytes'=>0]);$service->run();
  $video=$video->fresh();$videoJob=App\Models\R2ArchiveJob::where('image_id',$video->id)->first();
+ check($video->video_download_enabled,'archive preserves per-video download setting');
  check($videoJob && $videoJob->phase==='done' && $video->strategy_id===$tg->id && !$src->fileExists('1/hevc.mp4'),'HEVC video archive verifies destination and releases R2 source');
  $request=Illuminate\Http\Request::create('/archive','GET',['path'=>'1/hevc.mp4'],[],[],['HTTP_RANGE'=>'bytes=0-15']);
  $response=$controller->archived($request,$r2->id);ob_start();$response->sendContent();$prefix=ob_get_clean();

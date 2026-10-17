@@ -33,7 +33,7 @@ class TestImageService extends App\Services\ImageService {
  public function makeThumbnail(App\Models\Image $i,mixed $data,int $max=400,bool $force=false):void{if(App\Services\VideoMetadata::isVideo($i->extension))throw new Exception("video thumbnail decoding attempted");}
 }
 $base=array_merge(config('convention.group'),[App\Enums\GroupConfigKey::MaximumFileSize=>524288,
- App\Enums\GroupConfigKey::ImageSaveQuality=>100,App\Enums\GroupConfigKey::IsEnableWatermark=>false,
+ App\Enums\GroupConfigKey::LimitPerMinute=>100,App\Enums\GroupConfigKey::ImageSaveQuality=>100,App\Enums\GroupConfigKey::IsEnableWatermark=>false,
  App\Enums\GroupConfigKey::IsEnableScan=>false,App\Enums\GroupConfigKey::PathNamingRule=>'0',App\Enums\GroupConfigKey::FileNamingRule=>'{filename}']);
 $group=App\Models\Group::create(['name'=>'Guest','is_guest'=>true,'configs'=>$base]);
 $strategy=App\Models\Strategy::create(['name'=>'TG','key'=>App\Enums\StrategyKey::Telegram,'configs'=>['bot_token'=>'TEST_TOKEN','chat_id'=>'-1001','api_base'=>'http://telegram-bot-api:8081','local_root'=>$work.'/tg']]);
@@ -72,14 +72,15 @@ if (getenv('LSKY_TEST_VIDEO')) {
  $group->update(['configs'=>array_merge($base,[App\Enums\GroupConfigKey::AcceptedFileSuffixes=>array_merge($base[App\Enums\GroupConfigKey::AcceptedFileSuffixes],App\Services\VideoMetadata::EXTENSIONS)])]);
  foreach($fixtures as $ext=>$fixture) {
   $metadata=app(App\Services\VideoMetadata::class)->inspect($fixture,'clip.'.$ext);
-  check($metadata[0]===64 && $metadata[1]===48 && ($ext==='webm'?$metadata['codec']==='vp9':$metadata['codec']==='hevc'),'actual video metadata '.$ext);
+  $w=$ext==='m3u8'?0:($ext==='3gp'?128:64);$h=$ext==='m3u8'?0:($ext==='3gp'?96:48);
+  check($metadata[0]===$w && $metadata[1]===$h && !empty($metadata['codec']),'actual video metadata '.$ext);
   $bytes=file_get_contents($fixture);$row=upload($bytes,'clip.'.$ext);
-  check($row->mimetype===App\Services\VideoMetadata::mime($ext) && $row->width===64 && $row->height===48,'TG video uses canonical MIME and dimensions '.$ext);
+  check($row->mimetype===App\Services\VideoMetadata::mime($ext) && $row->width===$w && $row->height===$h,'TG video uses canonical MIME and dimensions '.$ext);
   check(str_contains($row->thumb_url,'static/video.svg') && !str_contains($row->links['markdown'],'!['),'video placeholder and download links '.$ext);
   $response=app(App\Services\ArchivedImageOutput::class)->response(Illuminate\Http\Request::create('/'.$row->key.'.'.$ext,'GET',[],[],[],['HTTP_RANGE'=>'bytes=0-15']),$row);
   ob_start();$response->sendContent();$chunk=ob_get_clean();check($response->getStatusCode()===206 && $chunk===substr($bytes,0,16),'TG video Range byte output '.$ext);
  }
- foreach(['fake.mp4','fake.mov','fake.webm','fake.hevc','fake.h265'] as $name) {
+ foreach(array_map(fn($ext)=>'fake.'.$ext,App\Services\VideoMetadata::EXTENSIONS) as $name) {
   try {upload($png,$name);throw new Exception('renamed image accepted as video');}
   catch(App\Exceptions\UploadException $e) {check(true,'renamed non-video rejected '.$name);}
  }

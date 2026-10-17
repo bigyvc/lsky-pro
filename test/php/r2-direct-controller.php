@@ -140,6 +140,22 @@ if (getenv('LSKY_TEST_VIDEO')) {
  require __DIR__.'/video-fixtures.php';
  $fixtures=videoFixtures($work);
  $config=$group->configs->all();$config[App\Enums\GroupConfigKey::AcceptedFileSuffixes]=array_merge($config[App\Enums\GroupConfigKey::AcceptedFileSuffixes],App\Services\VideoMetadata::EXTENSIONS);$group->configs=collect($config);$group->save();$user->setRelation('group',$group);
+ $priorConfig=$group->configs->all();
+ $largeConfig=$priorConfig;$largeConfig[App\Enums\GroupConfigKey::MaximumFileSize]=1048576;
+ $group->configs=collect($largeConfig);$group->save();$user->setRelation('group',$group);
+ foreach(['mp4'=>512*1024*1024+1,'m3u8'=>1048577] as $ext=>$size) {
+  $manifest=[];$remaining=$size;
+  while($remaining>0){$n=min(50*1024*1024,$remaining);$manifest[]=['size'=>$n,'md5'=>md5('oversized')];$remaining-=$n;}
+  $beforeStarts=$remote->starts;
+  try {
+   $result=body($controller->begin(requestFor(['name'=>'oversized.'.$ext,'size'=>$size,'md5'=>md5('oversized'),'sha1'=>sha1('oversized'),'strategy_id'=>$strategy->id,'parts_json'=>json_encode($manifest)]),$service));
+  } catch (Illuminate\Validation\ValidationException $e) {
+   check($remote->starts===$beforeStarts && isset($e->errors()['size']),'oversized video rejected by request validator '.$ext);
+   continue;
+  }
+  check(!$result['status'] && $remote->starts===$beforeStarts && str_contains($result['message'],'不能超过'),'oversized video rejected before remote upload '.$ext);
+ }
+ $group->configs=collect($priorConfig);$group->save();$user->setRelation('group',$group);
  foreach($fixtures as $ext=>$fixture){
   $length=filesize($fixture);$manifest=[['size'=>$length,'md5'=>md5_file($fixture)]];
   $meta=['name'=>'direct.'.$ext,'size'=>$length,'md5'=>md5_file($fixture),'sha1'=>sha1_file($fixture),'strategy_id'=>$strategy->id,'parts_json'=>json_encode($manifest)];

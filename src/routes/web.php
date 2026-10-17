@@ -38,6 +38,10 @@ Route::get('/', fn () => auth()->check() ? redirect()->route('images') : view('w
 Route::any('install', [Controller::class, 'install'])->name('install');
 Route::get('archive/r2/{source}/health', [\App\Http\Controllers\R2ArchiveController::class, 'health']);
 Route::get('archive/r2/{source}', [\App\Http\Controllers\R2ArchiveController::class, 'archived']);
+Route::get('v/{key}', [\App\Http\Controllers\VideoShareController::class, 'show'])->name('video.share');
+Route::get('v/{key}/download', [\App\Http\Controllers\VideoShareController::class, 'download'])->name('video.download');
+Route::post('v/{key}/settings', [\App\Http\Controllers\VideoShareController::class, 'settings'])
+    ->middleware(['auth', 'throttle:30,1'])->name('video.settings');
 Route::post('upload', [Controller::class, 'upload']);
 Route::prefix('upload/r2-direct')->middleware(['auth', 'throttle:60,1'])->group(function () {
     Route::post('', [\App\Http\Controllers\R2DirectUploadController::class, 'begin']);

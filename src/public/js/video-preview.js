@@ -1,7 +1,7 @@
 /* Experimental video preview. Raw HEVC is downloadable; browser codec support is not assumed. */
 (function (root) {
     'use strict';
-    const extensions = new Set(['mp4', 'mov', 'webm', 'hevc', 'h265']);
+    const extensions = new Set(['mp4', 'mov', 'webm', 'hevc', 'h265', 'm4v', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', '3gp', 'm3u8']);
     function extension(url) {
         try {
             const parsed = new URL(url, root.location.href);
@@ -9,25 +9,33 @@
         } catch (_) { return ''; }
     }
     function isVideo(url) { return extensions.has(extension(url)); }
-    function open(url, name) {
+    function open(url, name, shareUrl) {
         if (!isVideo(url)) return;
         const dialog = document.createElement('dialog');
         Object.assign(dialog.style, { width: 'min(94vw, 960px)', maxHeight: '90vh', padding: '20px', border: 'none', borderRadius: '16px', background: '#171b23', color: '#f3f4f6' });
         const title = document.createElement('p'); title.textContent = name || '视频';
         const close = document.createElement('button'); close.type = 'button'; close.textContent = '关闭';
-        const download = document.createElement('a'); download.href = url; download.download = name || ''; download.textContent = '下载原文件';
-        Object.assign(download.style, { color: '#9dbbff', display: 'inline-block', margin: '12px 20px 0 0' });
         dialog.append(title);
         let video;
-        if (!['hevc', 'h265'].includes(extension(url))) {
-            video = document.createElement('video'); video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.src = url;
+        if (['mp4', 'mov', 'm4v', 'webm', 'm3u8'].includes(extension(url))) {
+            video = document.createElement('video'); video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.setAttribute('controlslist', 'nodownload'); video.src = url;
             Object.assign(video.style, { display: 'block', width: '100%', maxHeight: '65vh', background: '#000' });
-            const hint = document.createElement('p'); hint.textContent = '无法播放时可下载原文件；播放取决于设备支持的视频编码。';
+            const hint = document.createElement('p'); hint.textContent = '播放取决于设备支持的视频编码；可在分享页查看下载设置。';
             dialog.append(video, hint);
         } else {
-            const hint = document.createElement('p'); hint.textContent = '这是 HEVC/H.265 裸码流，请下载后使用支持的播放器打开。'; dialog.append(hint);
+            const hint = document.createElement('p'); hint.textContent = '此格式暂不提供网页播放，请在分享页查看是否开放原文件下载。'; dialog.append(hint);
         }
-        dialog.append(download, close); document.body.append(dialog);
+        if (shareUrl) {
+            try {
+                const parsed = new URL(shareUrl, root.location.href);
+                if (parsed.origin === root.location.origin && /^\/v\/[A-Za-z0-9]+$/.test(parsed.pathname) && !parsed.search && !parsed.hash) {
+                    const share = document.createElement('a'); share.href = parsed.href; share.textContent = '分享页与下载设置';
+                    Object.assign(share.style, { color: '#9dbbff', display: 'inline-block', margin: '12px 20px 0 0' });
+                    dialog.append(share);
+                }
+            } catch (_) {}
+        }
+        dialog.append(close); document.body.append(dialog);
         let disposed = false;
         const dispose = () => { if (disposed) return; disposed = true; if (video) { video.removeAttribute('src'); video.load(); } dialog.remove(); };
         close.addEventListener('click', () => { if (typeof dialog.close === 'function') dialog.close(); dispose(); });
@@ -43,7 +51,9 @@
         const url = image && image.getAttribute('data-original');
         if (!isVideo(url)) return;
         if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        event.preventDefault(); event.stopImmediatePropagation(); open(url, image.alt);
+        let shareUrl;
+        try { shareUrl = JSON.parse(card.getAttribute('data-json') || '{}').links?.share_url; } catch (_) {}
+        event.preventDefault(); event.stopImmediatePropagation(); open(url, image.alt, shareUrl);
     }, true);
     root.LskyVideoPreview = { isVideo, open };
 })(window);
