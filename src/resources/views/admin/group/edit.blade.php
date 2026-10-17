@@ -110,8 +110,8 @@
                             </div>
 
                             <div class="col-span-6">
-                                <x-fieldset title="允许上传的图片类型">
-                                    @foreach($default['accepted_file_suffixes'] as $extension)
+                                <x-fieldset title="允许上传的文件类型">
+                                    @foreach(array_merge($default['accepted_file_suffixes'], \App\Services\VideoMetadata::EXTENSIONS) as $extension)
                                         <x-fieldset-checkbox id="configs[accepted_file_suffixes]_{{ $extension }}" name="configs[accepted_file_suffixes][]" value="{{ $extension }}" :checked="in_array($extension, $group->configs->get('accepted_file_suffixes'))">
                                             {{ strtoupper($extension) }}
                                         </x-fieldset-checkbox>

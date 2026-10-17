@@ -103,8 +103,16 @@ class R2ArchiveService
                 try {
                     $this->verify($this->digest($remote->readStream($job->source_path), $job->bytes, $tmp), $job);
                     rewind($tmp);
-                    $destination->writeStream($job->target_path, $tmp);
-                } finally { fclose($tmp); }
+                    $image = $this->sourceRows($job)->whereKey($job->image_id)->first()
+                        ?? $this->sourceRows($job)->first();
+                    if (!$image) throw new RuntimeException('归档图片记录已变化，保留 R2 原文件');
+                    $original = $image->origin_name;
+                    if ($original === null || $original === '') $original = $image->name;
+                    $destination->writeStream($job->target_path, $tmp, [
+                        'telegram_filename'=>$image->key.'-'.$original,
+                        'mimetype'=>$image->mimetype,
+                    ]);
+                } finally { if (is_resource($tmp)) fclose($tmp); }
             }
             // A successful sendDocument alone is insufficient: getFile and read the actual destination.
             $this->verify($this->digest($destination->readStream($job->target_path), $job->bytes), $job);

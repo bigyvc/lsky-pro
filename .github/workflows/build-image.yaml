@@ -90,14 +90,15 @@ env:
   # 于是镜像明明是对的（构建期 md5sum -c 已断言过），却被这一步判成失败。
   # 上游快照里的数据库迁移文件个数。换 pin 时若这个数变了，说明有 schema 变更，
   # 而 entrypoint 不会自动跑 migrate —— 那种情况必须人工处理，所以在 CI 里钉住提醒。
-  # 14 = 上游 pin 快照自带的 10 + 本 fork 新增的 4 个（都是只建新表、不动原表）：
+  # 15 = 上游 pin 快照 10 + fork 5；最后一项为默认false的附加字段。
   #   2026-10-01 标签功能：2026_10_01_000001_create_tags_table /
   #                        2026_10_01_000002_create_image_tag_table
   #   2026-10-12 Telegram 存储策略：2026_10_12_200000_create_telegram_files_table
   #     （path→file_id/message_id 映射表；不用 Telegram 策略时建空表、无影响）
   #   2026-10-14 R2 归档策略/迁移记录：2026_10_14_120000_create_r2_archive_tables
   # 已安装的标准站点由entrypoint备份SQLite后自动补表；未安装/非标准数据库跳过。
-  UPSTREAM_MIGRATION_COUNT: "14"
+  #   2026-10-17 已退役字段，保留迁移兼容：2026_10_17_000001_add_video_download_enabled_to_images
+  UPSTREAM_MIGRATION_COUNT: "15"
   # 「真升级用例」（tools/upgrade-test.sh）的升级基线：**不再写死**，由脚本向 GHCR 匿名 API
   # 现查「最新的 sha-<commit> tag，且 ≠ 本次构建的 commit」当基线。
   # 为什么改（原来的写法确实会红）：这里曾硬编码 sha-cd14a3b9…，那个 tag 一旦从 GHCR 消失
@@ -606,12 +607,14 @@ jobs:
           fi
           echo "测试版内存收紧自证通过：memory_limit=64M，MaxConnectionsPerChild=5"
           # Real Laravel / SDK signing with fake R2 transport; no account credentials.
+          docker cp test/php/audio-fixtures.php lsky-smoke:/tmp/audio-fixtures.php
+          docker cp test/php/video-fixtures.php lsky-smoke:/tmp/video-fixtures.php
           docker cp test/php/r2-direct-controller.php lsky-smoke:/tmp/r2-direct-controller.php
-          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php /tmp/r2-direct-controller.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php /tmp/r2-direct-controller.php
           docker cp test/php/telegram-upload.php lsky-smoke:/tmp/telegram-upload.php
-          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/telegram-upload.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php -d memory_limit=64M /tmp/telegram-upload.php
           docker cp test/php/r2-archive.php lsky-smoke:/tmp/r2-archive.php
-          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/r2-archive.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php -d memory_limit=64M /tmp/r2-archive.php
           docker rm -f lsky-smoke
 
           {

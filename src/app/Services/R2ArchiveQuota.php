@@ -31,6 +31,17 @@ class R2ArchiveQuota
         if (!is_dir($root) && !@mkdir($root, 0700, true) && !is_dir($root)) throw new RuntimeException('无法创建 R2 容量预留目录');
         return $root;
     }
+    /** Readers do not take the quota lock: publish complete leases with an atomic rename. */
+    private function writeLease(string $path, array $lease): void
+    {
+        $tmp = $path.'.'.bin2hex(random_bytes(8)).'.tmp';
+        try {
+            $json = json_encode($lease, JSON_THROW_ON_ERROR);
+            if (file_put_contents($tmp, $json) !== strlen($json) || !rename($tmp, $path)) {
+                throw new RuntimeException('无法保存 R2 容量预留');
+            }
+        } finally { if (is_file($tmp)) @unlink($tmp); }
+    }
     public function pending(string $identity): int
     {
         $bytes = 0;
@@ -56,7 +67,7 @@ class R2ArchiveQuota
                 $existing=json_decode((string)file_get_contents($path), true);
                 if (($existing['expires'] ?? 0) > time() && (int)($existing['bytes'] ?? -1) === $bytes) {
                     $existing['expires']=time()+86400;
-                    if (file_put_contents($path, json_encode($existing)) === false) throw new RuntimeException('无法更新 R2 容量预留');
+                    $this->writeLease($path, $existing);
                     return $identity.'-'.$token;
                 }
                 @unlink($path);
@@ -66,9 +77,7 @@ class R2ArchiveQuota
                 $policy->update(['requested'=>true]);
                 throw new UploadException('R2 已接近 9.5GB，已请求后台迁移，请稍后重试上传');
             }
-            if (file_put_contents($path, json_encode(['bytes'=>$bytes, 'key'=>$key, 'expires'=>time()+86400])) === false) {
-                throw new RuntimeException('无法预留 R2 容量');
-            }
+            $this->writeLease($path, ['bytes'=>$bytes, 'key'=>$key, 'expires'=>time()+86400]);
             return $identity.'-'.$token;
         } finally { flock($lock, LOCK_UN); fclose($lock); }
     }

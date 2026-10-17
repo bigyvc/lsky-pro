@@ -128,7 +128,7 @@ RUN printf '%s\n' \
         'dcc6b370414cf329b7902cdd85f33d2f  ./config/convention.php' \
         'db65c75d80206cfdea444901e0ca2035  ./routes/web.php' \
         'c1ab546f3e7f5237c1d45435171858ce  ./routes/auth.php' \
-        'd23a88c10827cfdaea5cd39b7d32c240  ./app/Services/ImageService.php' \
+        'fdc4e927bf46347dd0550ff59a3aa4da  ./app/Services/ImageService.php' \
     | md5sum -c -
 
 # 有意偏离上游的另一个文件：composer.lock。
@@ -171,7 +171,7 @@ RUN php -r "file_exists('.env') || copy('.env.example', '.env');" \
 RUN printf '%s\n' \
         '990b99095f1132c93c5e15343d6daf49  ./public/js/context-js/context-js.js' \
         '990b99095f1132c93c5e15343d6daf49  ./resources/js/context-js.js' \
-        '7a7c1785d82e0615a4c091c92394e130  ./resources/views/user/images.blade.php' \
+        '4566d906791dab1ab191c7a2fd91f79e  ./resources/views/user/images.blade.php' \
     | md5sum -c - \
     && grep -q "assetVersion('js/context-js/context-js.js')" ./resources/views/user/images.blade.php \
     && grep -q 'isIOSWebKit' ./public/js/context-js/context-js.js \
@@ -225,7 +225,7 @@ RUN APP_SRC_MD5=$(find app config routes -type f -print0 2>/dev/null | sort -z |
         "fork_sha=${FORK_SHA}" \
         "lsky_commit=${LSKY_COMMIT}" \
         "context_js_md5=990b99095f1132c93c5e15343d6daf49" \
-        "images_blade_md5=7a7c1785d82e0615a4c091c92394e130" \
+        "images_blade_md5=4566d906791dab1ab191c7a2fd91f79e" \
         "app_src_md5=${APP_SRC_MD5}" \
         "app_js_md5=${APP_JS_MD5}" \
         "app_css_md5=${APP_CSS_MD5}" \
@@ -332,7 +332,8 @@ RUN printf '%s\n' \
 # Retry transient PECL archive failures, clearing partial downloads before retrying.
 RUN set -eu; \
     apt-get update; \
-    apt-get install -y gettext; \
+    apt-get install -y --no-install-recommends gettext ffmpeg; \
+    ffprobe -version > /dev/null; \
     apt-get clean; \
     rm -rf /var/cache/apt/* /var/lib/apt/lists/* /tmp/*; \
     a2enmod rewrite; \

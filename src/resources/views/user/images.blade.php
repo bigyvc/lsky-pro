@@ -726,6 +726,7 @@
     @push('scripts')
         <script src="{{ asset('js/justified-gallery/jquery.justifiedGallery.min.js') }}"></script>
         <script src="{{ asset('js/viewer-js/viewer.min.js') }}"></script>
+        <script src="{{ asset('js/video-preview.js') }}?v={{ \App\Utils::assetVersion('js/video-preview.js') }}"></script>
         <script src="{{ asset('js/cropper-js/cropper.min.js') }}?v={{ \App\Utils::assetVersion('js/cropper-js/cropper.min.js') }}"></script>
         <script src="{{ asset('js/dragselect/ds.min.js') }}"></script>
         {{-- fork 补丁：加版本串，避免 iOS/Safari 的启发式缓存把旧版 context-js.js 一直喂给老用户 --}}
@@ -817,6 +818,7 @@
             };
             const viewer = new Viewer(document.getElementById('images-grid'), {
                 url: 'data-original',
+                filter: image => !window.LskyVideoPreview?.isVideo(image.getAttribute('data-original') || ''),
                 // fork：自定义工具栏。注意 —— 传对象进入「自定义」模式后，内置按钮**只渲染你列出的键**，
                 // 所以这里把库里那 11 个内置按钮按原顺序照抄一遍（`true` 与原默认行为等价），
                 // 末尾追加「裁剪」（点击回调见 cropEditor；只有当前图是 jpg/jpeg/png 时才显示）。

@@ -210,7 +210,11 @@ class Image extends Model
         return new Attribute(function () {
             // 是否启用原图保护功能
             if ($this->strategy?->key === \App\Enums\StrategyKey::Telegram || $this->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection)) {
-                $url = asset("{$this->key}.{$this->extension}");
+                // The readable label is independent of physical storage rules.
+                // Keep spaces/Chinese via URL encoding; never use it to locate a file.
+                $label = pathinfo($this->origin_name ?: $this->name, PATHINFO_FILENAME);
+                $label = preg_replace('/[\x00-\x1F\x7F\/\\\\]/', '_', $label);
+                $url = asset($this->key.'/'.rawurlencode($label === '' ? 'file' : $label).'.'.$this->extension);
             } else {
                 $url = rtrim($this->strategy?->configs->get('url'), '/').'/'.ltrim($this->pathname, '/');
             }
@@ -223,6 +227,8 @@ class Image extends Model
     public function thumbUrl(): Attribute
     {
         return new Attribute(function () {
+            if (\App\Services\VideoMetadata::isAudio($this->extension)) return asset('static/audio.svg');
+            if (\App\Services\VideoMetadata::isMedia($this->extension)) return asset('static/video.svg');
             $pathname = $this->getThumbnailPathname();
 
             // 没有缩略图则返回原图
@@ -237,14 +243,27 @@ class Image extends Model
 
     public function links(): Attribute
     {
-        return new Attribute(fn() => collect([
-            'url' => $this->url,
-            'html' => "&lt;img src=\"{$this->url}\" alt=\"{$this->origin_name}\" title=\"{$this->origin_name}\" /&gt;",
-            'bbcode' => "[img]{$this->url}[/img]",
-            'markdown' => "![{$this->origin_name}]({$this->url})",
-            'markdown_with_link' => "[![{$this->origin_name}]({$this->url})]({$this->url})",
-            'thumbnail_url' => $this->thumb_url,
-        ]));
+        return new Attribute(function () {
+            if (\App\Services\VideoMetadata::isMedia($this->extension)) {
+                $tag=\App\Services\VideoMetadata::isAudio($this->extension)?'audio':'video';
+                return collect([
+                    'url'=>$this->url,
+                    'html'=>"&lt;{$tag} controls playsinline src=\"{$this->url}\"&gt;&lt;/{$tag}&gt;",
+                    'bbcode'=>"[url={$this->url}]{$this->origin_name}[/url]",
+                    'markdown'=>"[{$this->origin_name}]({$this->url})",
+                    'markdown_with_link'=>"[{$this->origin_name}]({$this->url})",
+                    'thumbnail_url'=>$this->thumb_url,
+                ]);
+            }
+            return collect([
+                'url' => $this->url,
+                'html' => "&lt;img src=\"{$this->url}\" alt=\"{$this->origin_name}\" title=\"{$this->origin_name}\" /&gt;",
+                'bbcode' => "[img]{$this->url}[/img]",
+                'markdown' => "![{$this->origin_name}]({$this->url})",
+                'markdown_with_link' => "[![{$this->origin_name}]({$this->url})]({$this->url})",
+                'thumbnail_url' => $this->thumb_url,
+            ]);
+        });
     }
 
     public function filesystem(): Filesystem

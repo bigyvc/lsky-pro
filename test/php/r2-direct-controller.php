@@ -13,6 +13,8 @@ set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(
 function check($condition,$message){if(!$condition)throw new Exception($message);echo "PASS $message\n";}
 class FakeR2 extends App\Services\R2UploadGateway {
  public array $uploads=[],$objects=[];public int $starts=0,$completions=0,$deletes=0,$aborts=0,$headers=0;public bool $lostResponse=false;public ?string $headerBytes=null;public array $headerLimits=[];
+ public ?string $videoFixture=null;
+ public function videoMetadata(string $key,string $name):array{return app(App\Services\VideoMetadata::class)->inspect($this->videoFixture,$name);}
  public function __construct(){}
  public function start(string $key,string $mime,string $id):string {$upload='u'.++$this->starts;$this->uploads[$upload]=['key'=>$key,'mime'=>$mime,'id'=>$id,'parts'=>[]];return $upload;}
  public function sign(string $key,string $id,int $number,int $size,string $md5):array{return ['url'=>'https://r2.test/'.$id.'?part='.$number,'md5'=>base64_encode(hex2bin($md5)),'size'=>$size];}
@@ -31,7 +33,7 @@ class TestDirect extends App\Services\R2DirectUpload {
 }
 $group=App\Models\Group::create(['name'=>'Admin','configs'=>array_merge(config('convention.group'),[
  App\Enums\GroupConfigKey::PathNamingRule=>'{uid}',App\Enums\GroupConfigKey::FileNamingRule=>'{filename}',
- App\Enums\GroupConfigKey::MaximumFileSize=>524288,App\Enums\GroupConfigKey::ImageSaveQuality=>100,
+ App\Enums\GroupConfigKey::LimitPerMinute=>100,App\Enums\GroupConfigKey::MaximumFileSize=>524288,App\Enums\GroupConfigKey::ImageSaveQuality=>100,
  App\Enums\GroupConfigKey::IsEnableWatermark=>false,App\Enums\GroupConfigKey::IsEnableScan=>false,
 ])]);
 $user=new App\Models\User(['name'=>'Admin','email'=>'admin@example.test','password'=>'test','capacity'=>1073741824,'status'=>App\Enums\UserStatus::Normal,'configs'=>[]]);
@@ -133,6 +135,37 @@ check(str_contains($minioSigned['url'],'TEST_MINIO')&&!str_contains($minioSigned
 for ($i=0;$i<5;$i++) {
  $tiny=['name'=>'tiny-'.$i.'.png','size'=>3,'md5'=>md5('abc'),'sha1'=>sha1('abc'),'strategy_id'=>$strategy->id,'parts_json'=>json_encode([['size'=>3,'md5'=>md5('abc')]])];
  $started=body($controller->begin(requestFor($tiny),$service));check($started['status'],'small direct uploads do not consume three-large-file slots');
+}
+if (getenv('LSKY_TEST_VIDEO')) {
+ require __DIR__.'/video-fixtures.php';
+ $fixtures=videoFixtures($work);
+ $config=$group->configs->all();$config[App\Enums\GroupConfigKey::AcceptedFileSuffixes]=array_merge($config[App\Enums\GroupConfigKey::AcceptedFileSuffixes],App\Services\VideoMetadata::EXTENSIONS);$group->configs=collect($config);$group->save();$user->setRelation('group',$group);
+ $priorConfig=$group->configs->all();
+ $largeConfig=$priorConfig;$largeConfig[App\Enums\GroupConfigKey::MaximumFileSize]=1048576;
+ $group->configs=collect($largeConfig);$group->save();$user->setRelation('group',$group);
+ foreach(['mp4'=>512*1024*1024+1,'m3u8'=>1048577] as $ext=>$size) {
+  $manifest=[];$remaining=$size;
+  while($remaining>0){$n=min(50*1024*1024,$remaining);$manifest[]=['size'=>$n,'md5'=>md5('oversized')];$remaining-=$n;}
+  $beforeStarts=$remote->starts;
+  try {
+   $result=body($controller->begin(requestFor(['name'=>'oversized.'.$ext,'size'=>$size,'md5'=>md5('oversized'),'sha1'=>sha1('oversized'),'strategy_id'=>$strategy->id,'parts_json'=>json_encode($manifest)]),$service));
+  } catch (Illuminate\Validation\ValidationException $e) {
+   check($remote->starts===$beforeStarts && isset($e->errors()['size']),'oversized video rejected by request validator '.$ext);
+   continue;
+  }
+  check(!$result['status'] && $remote->starts===$beforeStarts && str_contains($result['message'],'不能超过'),'oversized video rejected before remote upload '.$ext);
+ }
+ $group->configs=collect($priorConfig);$group->save();$user->setRelation('group',$group);
+ foreach($fixtures as $ext=>$fixture){
+  $length=filesize($fixture);$manifest=[['size'=>$length,'md5'=>md5_file($fixture)]];
+  $meta=['name'=>'direct.'.$ext,'size'=>$length,'md5'=>md5_file($fixture),'sha1'=>sha1_file($fixture),'strategy_id'=>$strategy->id,'parts_json'=>json_encode($manifest)];
+  $remote->videoFixture=$fixture;
+  $begin=body($controller->begin(requestFor($meta),$service));check($begin['status'],'R2 video session begins '.$ext);
+  $remote->populate($manifest);
+  $complete=body($controller->complete(requestFor(),$service,$begin['data']['id']));
+  if(!$complete['status'])fwrite(STDERR,json_encode($complete,JSON_UNESCAPED_UNICODE).PHP_EOL);
+  check($complete['status'] && $complete['data']['mimetype']===App\Services\VideoMetadata::mime($ext),'R2 video inspected and registered '.$ext);
+ }
 }
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
 foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);
