@@ -211,7 +211,11 @@ class Image extends Model
         return new Attribute(function () {
             // 是否启用原图保护功能
             if ($this->strategy?->key === \App\Enums\StrategyKey::Telegram || $this->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection)) {
-                $url = asset("{$this->key}.{$this->extension}");
+                // The readable label is independent of physical storage rules.
+                // Keep spaces/Chinese via URL encoding; never use it to locate a file.
+                $label = pathinfo($this->origin_name ?: $this->name, PATHINFO_FILENAME);
+                $label = preg_replace('/[\x00-\x1F\x7F\/\\\\]/', '_', $label);
+                $url = asset($this->key.'/'.rawurlencode($label === '' ? 'file' : $label).'.'.$this->extension);
             } else {
                 $url = rtrim($this->strategy?->configs->get('url'), '/').'/'.ltrim($this->pathname, '/');
             }

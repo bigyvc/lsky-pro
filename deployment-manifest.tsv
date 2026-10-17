@@ -6,7 +6,7 @@
 -	b85324094918710bb7c1dfcc4863b065	app/Http/Controllers/R2ArchiveController.php
 -	80162d75ea2a67c6fe5d8c609976b33c	app/Http/Controllers/R2DirectUploadController.php
 6d6330e8aefd4bede958dbdedfda2561	137f01d74909991adc45445acdad2393	app/Http/Requests/Admin/StrategyRequest.php
-d8f0aaae7e952f99e4393ed656b73b1a	984111438a12be055eac71d5073aef74	app/Models/Image.php
+d8f0aaae7e952f99e4393ed656b73b1a	bc471a3e99ab243a0bac24a202ddf911	app/Models/Image.php
 -	c0b550b85e5d43699b821714842ad04e	app/Models/R2ArchiveJob.php
 -	50da629d6c8dcc0c9932d6bfd5170d16	app/Models/R2ArchivePolicy.php
 -	5a47806316598ba60e83bedf01e73eb0	app/Services/ArchivedImageOutput.php

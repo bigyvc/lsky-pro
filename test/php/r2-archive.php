@@ -71,7 +71,7 @@ $dst->unreadable=false;$gateway->failDelete=false;$r=$service->run();$job->refre
 check($job->phase==='done'&&!$src->fileExists('1/first.png')&&$gateway->deletes===1,'verified resumable transfer deletes source exactly once');
 $service->run();check($gateway->deletes===1&&App\Models\Image::count()===1,'repeated archival does not duplicate image records or deletes');
 [$archivedName,$archiveLease]=$quota->reserveNamed($r2,'1/first.png',10);check($archivedName!=='1/first.png','archived old URL is never reused for new relay bytes');$quota->release($archiveLease);
-check(str_contains($first->fresh()->url,$first->key.'.png')&&!str_contains($first->fresh()->url,'TEST_TOKEN'),'TG image link uses application output without changing group protection');
+check(str_contains($first->fresh()->url,'/'.$first->key.'/') && str_ends_with($first->fresh()->url,'.png')&&!str_contains($first->fresh()->url,'TEST_TOKEN'),'TG image link uses application output without changing group protection');
 $bad=imageAt('corrupt.png',str_repeat('b',180));$bad->forceFill(['sha1'=>sha1('wrong')])->save();
 $service->run();check($src->fileExists('1/corrupt.png')&&$bad->fresh()->strategy_id===$r2->id,'source hash mismatch is never migrated or deleted');
 // Free this synthetic failed fixture to test a full 350MiB file under PHP's 64MiB limit.

@@ -54,6 +54,31 @@ $image=upload($png);
 check($image->path==='0' && $image->pathname==='0/photo.png','literal path rule zero persists exactly');
 check(App\Models\TelegramFile::where('path',$image->pathname)->exists(),'image pathname and TG mapping are identical');
 $handle=$image->filesystem()->readStream($image->pathname);check(stream_get_contents($handle)===$png,'actual image filesystem opens the uploaded guest image');fclose($handle);
+
+check(str_contains($image->url,'/'.$image->key.'/photo.png'),'TG URL includes original filename');
+$display=clone $image;$display->origin_name='云朵 - 我的楼兰.png';$display->name='physical-hash.png';
+check(rawurldecode(basename(parse_url($display->url,PHP_URL_PATH)))==='云朵 - 我的楼兰.png','Chinese and spaces kept in URL label independently of physical naming');
+$display->origin_name='0.png';check(str_ends_with($display->url,'/0.png'),'literal zero filename is preserved');
+$display->origin_name='云朵 - 我的楼兰.png';
+$display->name='physical-hash-a1b2c3.png';
+check(rawurldecode(basename(parse_url($display->url,PHP_URL_PATH)))==='云朵 - 我的楼兰.png','record key distinguishes collisions without adding a suffix to the label');
+$display->origin_name='../danger?#%/test.png';
+check(str_contains($display->url,'/'.$image->key.'/test.png'),'label cannot inject storage paths or change record key');
+$controller=new App\Http\Controllers\Controller();
+$unicodeLink=url($image->key.'/'.rawurlencode('云朵 - 我的楼兰').'.png');
+foreach([$image->url,$unicodeLink,url($image->key.'.png'),url($image->key.'/old-decorative-name.png')] as $link) {
+ $request=Illuminate\Http\Request::create($link,'GET',[],[],[],['HTTP_RANGE'=>'bytes=0-15']);
+ $route=$app['router']->getRoutes()->match($request);$request->setRouteResolver(fn()=>$route);
+ $response=$controller->output($request,$service);
+ ob_start();$response->sendContent();$prefix=ob_get_clean();
+ check($response->getStatusCode()===206 && $prefix===substr($png,0,16),'new, old and storage-rename-compatible URLs read the same TG mapping');
+}
+$request=Illuminate\Http\Request::create($display->url,'HEAD');
+$route=$app['router']->getRoutes()->match($request);$request->setRouteResolver(fn()=>$route);
+$headResponse=$controller->output($request,$service);ob_start();$headResponse->sendContent();$headContent=ob_get_clean();
+check($headContent==='' && (int)$headResponse->headers->get('Content-Length')===strlen($png),'named URL HEAD returns size without a body');
+check($route->parameter('key')===$image->key && $route->parameter('extension')==='png','named URL route accepts encoded label and resolves stable key');
+
 $again=upload($png);check($again->pathname===$image->pathname && $adapter->sent===1,'valid duplicate reuses mapping without another remote upload');
 App\Models\TelegramFile::where('path',$image->pathname)->delete();
 $repaired=upload($png);check($repaired->pathname===$image->pathname && $adapter->sent===2,'upload repairs a missing TG mapping instead of copying a broken record');
