@@ -6,6 +6,7 @@ putenv('APP_ENV=testing');putenv('APP_KEY=base64:'.base64_encode(random_bytes(32
 $app=require $source.'/bootstrap/app.php';$app->useStoragePath($work.'/storage');
 foreach(['framework/cache/data','framework/sessions','framework/views','logs','app'] as $p)mkdir($work.'/storage/'.$p,0700,true);
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
 config(['database.default'=>'sqlite','database.connections.sqlite.database'=>':memory:','cache.default'=>'array','session.driver'=>'array']);
 Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
 // Remove the archival migration from an otherwise current database, then reapply it.
@@ -18,7 +19,6 @@ Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
 $sentinelAfter=json_encode(Illuminate\Support\Facades\DB::table('groups')->where('name','migration-sentinel')->first());
 if ($sentinelBefore!==$sentinelAfter || Illuminate\Support\Facades\DB::table('migrations')->count()!==$migrationCount) throw new Exception('additive upgrade changed existing data');
 echo "PASS upgrade adds archival tables without modifying existing rows\n";
-set_exception_handler(function($e){fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
 function check($yes,$label){if(!$yes)throw new Exception($label);echo "PASS $label\n";}
 mkdir($work.'/r2');mkdir($work.'/tg');
 class ArchiveGateway extends App\Services\R2UploadGateway {
@@ -31,8 +31,8 @@ class ArchiveGateway extends App\Services\R2UploadGateway {
  public function bucketBytes():int{$n=$this->extra;foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root,FilesystemIterator::SKIP_DOTS)) as $f)if($f->isFile())$n+=$f->getSize();return $n;}
 }
 class ArchiveFilesystem extends League\Flysystem\Filesystem {
- public bool $unreadable=false;
- public function readStream(string $key){if($this->unreadable)throw new RuntimeException('TG getFile failure');return parent::readStream($key);}
+ public bool $unreadable=false;public int $reads=0;
+ public function readStream(string $key){$this->reads++;if($this->unreadable)throw new RuntimeException('TG getFile failure');return parent::readStream($key);}
 }
 class ArchiveService extends App\Services\R2ArchiveService {
  public function __construct(public ArchiveGateway $remote,public League\Flysystem\Filesystem $src,public ArchiveFilesystem $dst){}
@@ -59,6 +59,14 @@ check(preg_match('~^1/first-[a-f0-9]{6}\.png$~',$relayName)&&$relayName!==$relay
 $quota->release($relayLease);$quota->release($relayLease2);
 $lease=$quota->reserve($r2,40);
 check($lease!==null&&$quota->pending($policy->source_identity)===40,'in-flight bytes are reserved');
+$leasePath=$work.'/storage/app/r2-quota/'.$lease.'.json';
+$oldLease=json_decode(file_get_contents($leasePath),true);$oldLease['expires']=time()+60;
+file_put_contents($leasePath,json_encode($oldLease));$leaseReader=fopen($leasePath,'rb');
+$renewed=$quota->reserve($r2,40,substr($lease,-32));
+$readerSnapshot=json_decode(stream_get_contents($leaseReader),true);fclose($leaseReader);
+$currentLease=json_decode(file_get_contents($leasePath),true);
+check($renewed===$lease && $readerSnapshot===$oldLease && $currentLease['expires']>$oldLease['expires'] && $quota->pending($policy->source_identity)===40,'lease renewal publishes a complete new snapshot without truncating concurrent readers');
+
 try{$quota->reserve($r2,20);throw new Exception('overshoot allowed');}catch(App\Exceptions\UploadException $e){check(App\Models\R2ArchivePolicy::first()->requested,'projected quota overflow requests archival without starting upload');}
 $quota->release($lease);$quota->release($lease);check($quota->pending($policy->source_identity)===0,'reservation release is idempotent');
 $before=$service->run(true);check($before[0]['used']===100&&App\Models\R2ArchiveJob::count()===0&&$gateway->deletes===0,'dry run cannot copy, switch or delete');
@@ -96,6 +104,30 @@ OutputImage::$disk=$dst;$outputImage=new OutputImage();$outputImage->forceFill($
 $request=Illuminate\Http\Request::create('/original','GET',[],[],[],['HTTP_RANGE'=>'bytes=3-8']);
 $response=(new App\Services\ArchivedImageOutput())->response($request,$outputImage);ob_start();$response->sendContent();$content=ob_get_clean();
 check($response->getStatusCode()===206&&$content==='aaaaaa'&&$response->headers->get('Content-Range')==='bytes 3-8/100','TG byte ranges stream exact bytes');
+// Metadata-only requests must succeed even if the TG download service is unavailable.
+$dst->unreadable=true;$readsBefore=$dst->reads;$output=new App\Services\ArchivedImageOutput();
+foreach ([
+ ['HEAD',[],200,'100'],
+ ['HEAD',['HTTP_RANGE'=>'bytes=3-8'],200,'100'],
+ ['GET',['HTTP_IF_NONE_MATCH'=>'"'.$outputImage->sha1.'"','HTTP_RANGE'=>'bytes=3-8'],304,null],
+ ['GET',['HTTP_RANGE'=>'bytes=100-'],416,null],
+ ['GET',['HTTP_RANGE'=>'bytes=-0'],416,null],
+ ['GET',['HTTP_RANGE'=>'bytes=1-2,4-5'],416,null],
+] as [$method,$server,$status,$length]) {
+ $metadata=$output->response(Illuminate\Http\Request::create('/original',$method,[],[],[],$server),$outputImage);
+ ob_start();$metadata->sendContent();$body=ob_get_clean();
+ check($metadata->getStatusCode()===$status && $body==='' && ($length===null || $metadata->headers->get('Content-Length')===$length),'TG metadata request '.$method.' '.json_encode($server));
+}
+check($dst->reads===$readsBefore,'HEAD, 304 and invalid ranges never open the remote TG stream');
+try {$output->response(Illuminate\Http\Request::create('/original'),$outputImage);throw new Exception('missing TG bytes accepted');}
+catch (Symfony\Component\HttpKernel\Exception\HttpException $e) {check($e->getStatusCode()===503,'unavailable TG body still returns 503 before streaming');}
+$dst->unreadable=false;
+foreach ([['bytes=-4',null,206,'aaaa'],['bytes=95-',null,206,'aaaaa'],['bytes=0-3','"old-version"',200,str_repeat('a',100)]] as [$range,$ifRange,$status,$expected]) {
+ $server=['HTTP_RANGE'=>$range];if($ifRange!==null)$server['HTTP_IF_RANGE']=$ifRange;
+ $result=$output->response(Illuminate\Http\Request::create('/original','GET',[],[],[],$server),$outputImage);
+ ob_start();$result->sendContent();$body=ob_get_clean();
+ check($result->getStatusCode()===$status && $body===$expected && (int)$result->headers->get('Content-Length')===strlen($expected),'TG suffix/open range and If-Range fallback '.$range);
+}
 class TestOutput extends App\Services\ArchivedImageOutput {public function response(Illuminate\Http\Request $r,App\Models\Image $i):Symfony\Component\HttpFoundation\StreamedResponse{$mock=new OutputImage();$mock->forceFill($i->getAttributes());return parent::response($r,$mock);}}
 $app->instance(App\Services\ArchivedImageOutput::class,new TestOutput());
 $controller=new App\Http\Controllers\R2ArchiveController();$response=$controller->archived(Illuminate\Http\Request::create('/archive','GET',['path'=>'1/first.png']),$r2->id);

@@ -9,9 +9,9 @@
 d8f0aaae7e952f99e4393ed656b73b1a	719ad8d4ba1bacd77e8619f293038ab5	app/Models/Image.php
 -	c0b550b85e5d43699b821714842ad04e	app/Models/R2ArchiveJob.php
 -	50da629d6c8dcc0c9932d6bfd5170d16	app/Models/R2ArchivePolicy.php
--	5a47806316598ba60e83bedf01e73eb0	app/Services/ArchivedImageOutput.php
+-	dcce54d53e25110c28054f59afcb776c	app/Services/ArchivedImageOutput.php
 73a02bfc0c752407fa87b2ab8d963b7c	fdc4e927bf46347dd0550ff59a3aa4da	app/Services/ImageService.php
--	6fa7ec391b03bb7cc99770fd2fc89d08	app/Services/R2ArchiveQuota.php
+-	c88ae2a0ec43ef2e2e1b8ae0b10d07ce	app/Services/R2ArchiveQuota.php
 -	3aede0476ca2fbf0405bc83151b05c5d	app/Services/R2ArchiveService.php
 46ee437ed425d141c503f54310187f3b	aae73d5406754df3007a64546acefde8	app/Services/R2DirectUpload.php
 b01b7447571e2fb18fc78d5523bce036	1c851c7f78c2d7bdb722190e51462230	app/Services/R2UploadGateway.php
