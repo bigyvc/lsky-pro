@@ -104,7 +104,7 @@ class R2ArchiveService
                     $this->verify($this->digest($remote->readStream($job->source_path), $job->bytes, $tmp), $job);
                     rewind($tmp);
                     $destination->writeStream($job->target_path, $tmp);
-                } finally { fclose($tmp); }
+                } finally { if (is_resource($tmp)) fclose($tmp); }
             }
             // A successful sendDocument alone is insufficient: getFile and read the actual destination.
             $this->verify($this->digest($destination->readStream($job->target_path), $job->bytes), $job);

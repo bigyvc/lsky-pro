@@ -31,6 +31,12 @@ class ArchiveGateway extends App\Services\R2UploadGateway {
  public function bucketBytes():int{$n=$this->extra;foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root,FilesystemIterator::SKIP_DOTS)) as $f)if($f->isFile())$n+=$f->getSize();return $n;}
 }
 class ArchiveFilesystem extends League\Flysystem\Filesystem {
+ // Guzzle multipart owns its PHP resource and may close it after sending.
+ public function writeStream(string $location,$contents,array $config=[]):void {
+  parent::writeStream($location,$contents,$config);
+  $multipart=new GuzzleHttp\Psr7\MultipartStream([['name'=>'document','contents'=>$contents,'filename'=>basename($location)]]);
+  $multipart->close();
+ }
  public bool $unreadable=false;public int $reads=0;
  public function readStream(string $key){$this->reads++;if($this->unreadable)throw new RuntimeException('TG getFile failure');return parent::readStream($key);}
 }

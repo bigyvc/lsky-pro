@@ -36,3 +36,9 @@ PHP回归全部启用`LSKY_TEST_VIDEO=1 LSKY_TEST_AUDIO=1`：chunk-store、chunk
 - 统一备份脚本面向SJC统一Compose；HK仍须使用并验证原有备份，确认测试覆盖文件和当前镜像标签已留存。不能把SJC配置命令直接用于HK。
 - HEAD只验证记录元信息，不能证明TG文件可读。上线后用GET检查实际内容，并测试拖动进度、中文原名复制、同名上传；再做一张小文件的真实R2→TG归档及旧URL访问。
 - 本地通过不等于镜像构建成功、VPS已更新、真实归档成功或恢复演练完成。待本次Actions成功，再按[HK测试更新步骤](video-hevc.md#hk测试版更新顺序)备份并更新；不删除数据卷，不变更APP_KEY。
+
+## 真实归档补测发现的流所有权问题
+
+HK单文件实测出现`fclose(): supplied resource is not a valid stream resource`。上传所用Guzzle multipart接管并关闭底层PHP资源，原归档finally又无条件关闭，导致任务在副本校验前中断。原本的本地文件系统替身不会关闭调用者的资源，因此此前回归未覆盖此差异。
+
+修复为资源仍打开时才关闭。回归使用真实Guzzle MultipartStream包装并关闭上传流：旧实现使350MiB迁移用例失败，修复后完整归档回归通过，继续覆盖目标读取失败时保留R2和记录不切换、恢复后校验副本再删除源文件。任务不应手工改成done或删除；修复后用原来的单文件测试重跑，由状态机恢复并验证已有副本，不通过降低全局阈值重测。
