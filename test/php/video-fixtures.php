@@ -30,5 +30,9 @@ function videoFixtures(string $directory): array
     $playlist=$directory.'/clip.m3u8';
     file_put_contents($playlist,"#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nhttps://media.example.test/segment.ts\n#EXT-X-ENDLIST\n");
     $files['m3u8']=$playlist;
+    if(getenv('LSKY_TEST_AUDIO')) {
+        require_once __DIR__.'/audio-fixtures.php';
+        $files=array_merge($files,audioFixtures($directory));
+    }
     return $files;
 }

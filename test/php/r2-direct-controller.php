@@ -33,7 +33,7 @@ class TestDirect extends App\Services\R2DirectUpload {
 }
 $group=App\Models\Group::create(['name'=>'Admin','configs'=>array_merge(config('convention.group'),[
  App\Enums\GroupConfigKey::PathNamingRule=>'{uid}',App\Enums\GroupConfigKey::FileNamingRule=>'{filename}',
- App\Enums\GroupConfigKey::MaximumFileSize=>524288,App\Enums\GroupConfigKey::ImageSaveQuality=>100,
+ App\Enums\GroupConfigKey::LimitPerMinute=>100,App\Enums\GroupConfigKey::MaximumFileSize=>524288,App\Enums\GroupConfigKey::ImageSaveQuality=>100,
  App\Enums\GroupConfigKey::IsEnableWatermark=>false,App\Enums\GroupConfigKey::IsEnableScan=>false,
 ])]);
 $user=new App\Models\User(['name'=>'Admin','email'=>'admin@example.test','password'=>'test','capacity'=>1073741824,'status'=>App\Enums\UserStatus::Normal,'configs'=>[]]);
@@ -163,6 +163,7 @@ if (getenv('LSKY_TEST_VIDEO')) {
   $begin=body($controller->begin(requestFor($meta),$service));check($begin['status'],'R2 video session begins '.$ext);
   $remote->populate($manifest);
   $complete=body($controller->complete(requestFor(),$service,$begin['data']['id']));
+  if(!$complete['status'])fwrite(STDERR,json_encode($complete,JSON_UNESCAPED_UNICODE).PHP_EOL);
   check($complete['status'] && $complete['data']['mimetype']===App\Services\VideoMetadata::mime($ext),'R2 video inspected and registered '.$ext);
  }
 }

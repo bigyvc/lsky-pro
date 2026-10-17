@@ -224,7 +224,8 @@ class Image extends Model
     public function thumbUrl(): Attribute
     {
         return new Attribute(function () {
-            if (\App\Services\VideoMetadata::isVideo($this->extension)) return asset('static/video.svg');
+            if (\App\Services\VideoMetadata::isAudio($this->extension)) return asset('static/audio.svg');
+            if (\App\Services\VideoMetadata::isMedia($this->extension)) return asset('static/video.svg');
             $pathname = $this->getThumbnailPathname();
 
             // 没有缩略图则返回原图
@@ -240,11 +241,12 @@ class Image extends Model
     public function links(): Attribute
     {
         return new Attribute(function () {
-            if (\App\Services\VideoMetadata::isVideo($this->extension)) {
+            if (\App\Services\VideoMetadata::isMedia($this->extension)) {
+                $tag=\App\Services\VideoMetadata::isAudio($this->extension)?'audio':'video';
                 return collect([
                     'url'=>$this->url,
                     'share_url'=>route('video.share', ['key'=>$this->key]),
-                    'html'=>"&lt;video controls playsinline src=\"{$this->url}\"&gt;&lt;/video&gt;",
+                    'html'=>"&lt;{$tag} controls playsinline src=\"{$this->url}\"&gt;&lt;/{$tag}&gt;",
                     'bbcode'=>"[url={$this->url}]{$this->origin_name}[/url]",
                     'markdown'=>"[{$this->origin_name}]({$this->url})",
                     'markdown_with_link'=>"[{$this->origin_name}]({$this->url})",

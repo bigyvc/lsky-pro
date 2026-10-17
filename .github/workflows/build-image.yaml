@@ -607,13 +607,14 @@ jobs:
           fi
           echo "测试版内存收紧自证通过：memory_limit=64M，MaxConnectionsPerChild=5"
           # Real Laravel / SDK signing with fake R2 transport; no account credentials.
+          docker cp test/php/audio-fixtures.php lsky-smoke:/tmp/audio-fixtures.php
           docker cp test/php/video-fixtures.php lsky-smoke:/tmp/video-fixtures.php
           docker cp test/php/r2-direct-controller.php lsky-smoke:/tmp/r2-direct-controller.php
-          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 lsky-smoke php /tmp/r2-direct-controller.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php /tmp/r2-direct-controller.php
           docker cp test/php/telegram-upload.php lsky-smoke:/tmp/telegram-upload.php
-          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 lsky-smoke php -d memory_limit=64M /tmp/telegram-upload.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php -d memory_limit=64M /tmp/telegram-upload.php
           docker cp test/php/r2-archive.php lsky-smoke:/tmp/r2-archive.php
-          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 lsky-smoke php -d memory_limit=64M /tmp/r2-archive.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php -d memory_limit=64M /tmp/r2-archive.php
           docker cp test/php/video-share.php lsky-smoke:/tmp/video-share.php
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php /tmp/video-share.php
           docker rm -f lsky-smoke

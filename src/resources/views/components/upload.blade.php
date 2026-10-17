@@ -2,11 +2,11 @@
     <input type="file" id="picker" name="file" class="hidden" accept="{{ implode(',', array_map(fn ($ext) => '.'.$ext, $_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes))) }}" multiple>
 
     <div class="mb-4 p-4 ls-card">
-        <h1 class="text-xl font-semibold text-ink mb-2">{{ array_intersect($_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes, []), \App\Services\VideoMetadata::EXTENSIONS) ? '上传图片或视频' : '上传图片' }}</h1>
+        <h1 class="text-xl font-semibold text-ink mb-2">{{ array_intersect($_group->configs->get(\App\Enums\GroupConfigKey::AcceptedFileSuffixes, []), \App\Services\VideoMetadata::EXTENSIONS) ? '上传文件' : '上传图片' }}</h1>
         <p class="text-ink-3 text-[13.5px] leading-relaxed">
-            最大可上传 {{ \App\Utils::formatSize($_group->configs->get(\App\Enums\GroupConfigKey::MaximumFileSize) * 1024) }} 的图片，上传队列最多
+            最大可上传 {{ \App\Utils::formatSize($_group->configs->get(\App\Enums\GroupConfigKey::MaximumFileSize) * 1024) }} 的文件，上传队列最多
             {{ $_group->configs->get(\App\Enums\GroupConfigKey::ConcurrentUploadNum) ?: '不限' }}
-            张。本站已托管 {{ \App\Models\Image::query()->count() }} 张图片。
+            个。本站已托管 {{ \App\Models\Image::query()->count() }} 个文件。
         </p>
         <div class="mt-3 rounded-xl border-2 border-dotted border-line-2 w-full h-full" id="picker-dnd" onclick="$('#picker').click()">
             <div id="upload-container" class="relative group flex flex-col justify-center items-center gap-4 p-6 w-full h-full min-h-[200px] sm:min-h-[320px] text-ink-3 cursor-pointer">
@@ -53,7 +53,7 @@
                 <a href="javascript:void(0)" data-tab-name="markdown" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">Markdown</a>
                 <a href="javascript:void(0)" data-tab-name="markdown_with_link" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">Markdown with link</a>
                 <a href="javascript:void(0)" data-tab-name="thumbnail_url" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">Thumbnail url</a>
-                <a href="javascript:void(0)" data-tab-name="share_url" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">视频分享页</a>
+                <a href="javascript:void(0)" data-tab-name="share_url" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">音视频分享页</a>
             </div>
             {{-- 手机：column 下这一行拉满宽度，justify-end 右对齐；桌面：标签栏 flex-1 撑开，这里自然靠右。 --}}
             <div class="flex items-center justify-end gap-1 shrink-0 pb-2">
@@ -254,6 +254,9 @@
                     }
                 };
 
+                if (@json(\App\Services\VideoMetadata::AUDIO_EXTENSIONS).includes(ext.toLowerCase())) {
+                    push('{{ asset('static/audio.svg') }}'); return;
+                }
                 if (@json(\App\Services\VideoMetadata::EXTENSIONS).includes(ext.toLowerCase())) {
                     push('{{ asset('static/video.svg') }}');
                 } else if (file.size > LskyChunkUpload.CHUNK_SIZE || excludes.indexOf(file.name.substring(file.name.lastIndexOf(".") + 1).toLowerCase()) !== -1) {

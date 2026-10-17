@@ -7,15 +7,22 @@ use Symfony\Component\Process\Process;
 /** Metadata inspection only: never transcode, generate posters or trust a renamed extension. */
 class VideoMetadata
 {
-    public const EXTENSIONS = ['mp4', 'mov', 'webm', 'hevc', 'h265', 'm4v', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', '3gp', 'm3u8'];
-    public static function isVideo(string $extension): bool { return in_array(strtolower($extension), self::EXTENSIONS, true); }
+    public const VIDEO_EXTENSIONS = ['mp4', 'mov', 'webm', 'hevc', 'h265', 'm4v', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', '3gp', 'm3u8'];
+    public const AUDIO_EXTENSIONS = ['mp3','flac','wav','m4a','aac','ogg','opus','wma','aiff','aif','ape'];
+    public const EXTENSIONS = [...self::VIDEO_EXTENSIONS, ...self::AUDIO_EXTENSIONS];
+    public static function isAudio(string $extension): bool { return in_array(strtolower($extension), self::AUDIO_EXTENSIONS, true); }
+    public static function isMedia(string $extension): bool { return in_array(strtolower($extension), self::EXTENSIONS, true); }
+    public static function isVideo(string $extension): bool { return in_array(strtolower($extension), self::VIDEO_EXTENSIONS, true); }
     public static function mime(string $extension): string
     {
         return match (strtolower($extension)) {
+            'mp3'=>'audio/mpeg', 'flac'=>'audio/flac', 'wav'=>'audio/wav', 'm4a'=>'audio/mp4',
+            'aac'=>'audio/aac', 'ogg','opus'=>'audio/ogg', 'wma'=>'audio/x-ms-wma',
+            'aiff','aif'=>'audio/aiff', 'ape'=>'audio/x-ape',
             'mp4'=>'video/mp4', 'mov'=>'video/quicktime', 'webm'=>'video/webm',
             'hevc','h265'=>'video/h265', 'm4v'=>'video/mp4', 'mkv'=>'video/x-matroska',
             'avi'=>'video/x-msvideo', 'wmv'=>'video/x-ms-wmv', 'flv'=>'video/x-flv',
-            'm3u8'=>'application/vnd.apple.mpegurl', 'ts','m2ts','mts'=>'video/mp2t', '3gp'=>'video/3gpp', default=>throw new UploadException('不支持的视频类型'),
+            'm3u8'=>'application/vnd.apple.mpegurl', 'ts','m2ts','mts'=>'video/mp2t', '3gp'=>'video/3gpp', default=>throw new UploadException('不支持的音视频类型'),
         };
     }
 
@@ -82,6 +89,7 @@ class VideoMetadata
     {
         $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         $mime = self::mime($extension);
+        $audio = self::isAudio($extension);
         if ($extension === 'm3u8') {
             // Never let ffprobe follow playlist URLs. Remote R2 text is read by the gateway.
             if ($remote || !is_file($input)) throw new UploadException('播放列表读取方式无效');
@@ -89,16 +97,18 @@ class VideoMetadata
         }
         // Explicit demuxers prevent a renamed playlist from opening arbitrary protocols/URLs.
         $format = match ($extension) {
-            'mp4','mov','m4v','3gp'=>'mov', 'webm','mkv'=>'matroska', 'avi'=>'avi',
+            'mp3'=>'mp3', 'flac'=>'flac', 'wav'=>'wav', 'aac'=>'aac', 'ogg','opus'=>'ogg',
+            'aiff','aif'=>'aiff', 'ape'=>'ape', 'wma'=>'asf',
+            'mp4','mov','m4v','3gp','m4a'=>'mov', 'webm','mkv'=>'matroska', 'avi'=>'avi',
             'wmv'=>'asf', 'flv'=>'flv', 'ts','m2ts','mts'=>'mpegts', default=>'hevc',
         };
-        if ($remote && parse_url($input, PHP_URL_SCHEME) !== 'https') throw new UploadException('视频元数据地址无效');
-        if (!$remote && (!is_file($input) || filesize($input) > 512*1024*1024)) throw new UploadException('视频文件不存在或超过512MiB');
+        if ($remote && parse_url($input, PHP_URL_SCHEME) !== 'https') throw new UploadException('媒体元数据地址无效');
+        if (!$remote && (!is_file($input) || filesize($input) > 512*1024*1024)) throw new UploadException('媒体文件不存在或超过512MiB');
         $command = ['ffprobe','-v','error','-max_alloc','16777216','-protocol_whitelist',$remote?'https,tls,tcp':'file',
             '-threads','1','-rw_timeout','10000000','-probesize','1048576','-analyzeduration','1000000','-f',$format];
         if ($remote) array_push($command, '-tls_verify', '1', '-ca_file', '/etc/ssl/certs/ca-certificates.crt');
         if ($format === 'mov') array_push($command, '-enable_drefs', '0');
-        array_push($command,'-i',$input,'-select_streams','v:0','-show_entries','stream=codec_name,width,height','-of','json');
+        array_push($command,'-i',$input,'-select_streams',$audio?'a:0':'v:0','-show_entries','stream=codec_name,width,height,sample_rate,channels','-of','json');
         $process = new Process($command);
         $process->setTimeout(20);
         $slot = $this->slot();
@@ -108,9 +118,22 @@ class VideoMetadata
             $stream = json_decode($process->getOutput(), true, 16, JSON_THROW_ON_ERROR)['streams'][0] ?? [];
         } catch (\Throwable $e) {
             // ffprobe stderr may contain a signed URL: never return it to a visitor or log it here.
-            throw new UploadException('无法确认视频内容，请检查文件完整性、服务器探测组件及网络后重试');
+            throw new UploadException('无法确认音视频内容，请检查文件完整性、服务器探测组件及网络后重试');
         } finally { flock($slot, LOCK_UN); fclose($slot); }
         $codec = $stream['codec_name'] ?? '';
+        if ($audio) {
+            $allowed = match ($extension) {
+                'mp3'=>['mp3'], 'flac'=>['flac'], 'm4a'=>['aac','alac','mp3','ac3','eac3'],
+                'aac'=>['aac'], 'ogg'=>['vorbis','opus','flac'], 'opus'=>['opus'],
+                'wma'=>['wmav1','wmav2','wmapro','wmavoice','wmalossless'], 'ape'=>['ape'], default=>[],
+            };
+            $pcm = in_array($extension,['wav','aiff','aif'],true) && (str_starts_with($codec,'pcm_') || str_starts_with($codec,'adpcm_'));
+            $rate=(int)($stream['sample_rate']??0);$channels=(int)($stream['channels']??0);
+            if ((!$pcm && !in_array($codec,$allowed,true)) || $rate < 1 || $rate > 768000 || $channels < 1 || $channels > 64) {
+                throw new UploadException('音频内容与格式不匹配，或音频轨道无法识别');
+            }
+            return [0=>0,1=>0,'mime'=>$mime,'codec'=>$codec];
+        }
         $allowed = match ($extension) {
             'hevc','h265'=>['hevc'], 'webm'=>['vp8','vp9','av1'], default=>['h264','hevc','av1','mpeg4','vp8','vp9','mjpeg','mpeg1video','mpeg2video',
                 'wmv1','wmv2','wmv3','vc1','flv1','vp6f','h263','h263p','msmpeg4v2','msmpeg4v3','dvvideo','ffv1','huffyuv','rawvideo'],

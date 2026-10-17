@@ -110,5 +110,13 @@ check(!str_contains($html,'<video ') && str_contains($html,'暂不提供网页�
 $image->extension='m3u8';$image->save();
 check(str_contains($controller->show(req($admin))->getContent(),'浏览器原生HLS'),'HLS share explains native playback and external dependencies');
 
+
+foreach(App\Services\VideoMetadata::AUDIO_EXTENSIONS as $ext) {
+ $image->extension=$ext;$image->mimetype=App\Services\VideoMetadata::mime($ext);$image->save();
+ $html=$controller->show(req($admin))->getContent();
+ $playable=!in_array($ext,['wma','ape','aiff','aif'],true);
+ check(str_contains($html,'<audio ')===$playable && !str_contains($html,'<video '),'audio share player or download-only hint '.$ext);
+ check(str_contains($image->thumb_url,'static/audio.svg') && str_contains($image->links['html'],'&lt;audio '),'audio placeholder and embed markup '.$ext);
+}
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
 foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);

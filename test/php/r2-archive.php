@@ -139,5 +139,14 @@ if (getenv('LSKY_TEST_VIDEO')) {
  $response=$controller->archived($request,$r2->id);ob_start();$response->sendContent();$prefix=ob_get_clean();
  check($response->getStatusCode()===206 && $response->headers->get('Content-Type')==='video/mp4' && $prefix===substr($bytes,0,16),'archived video old path preserves MIME and seekable byte output');
 }
+if(getenv('LSKY_TEST_AUDIO')) {
+ $bytes=file_get_contents($fixtures['mp3']);$audio=imageAt('tone.mp3',$bytes);
+ $audio->forceFill(['extension'=>'mp3','mimetype'=>'audio/mpeg','width'=>0,'height'=>0,'video_download_enabled'=>false])->save();
+ $policy->update(['enabled'=>true,'requested'=>true,'target_bytes'=>0]);$service->run();$audio=$audio->fresh();
+ check($audio->strategy_id===$tg->id && !$audio->video_download_enabled && !$src->fileExists('1/tone.mp3'),'audio archive preserves record and download setting');
+ $request=Illuminate\Http\Request::create('/archive','GET',['path'=>'1/tone.mp3'],[],[],['HTTP_RANGE'=>'bytes=0-15']);
+ $response=$controller->archived($request,$r2->id);ob_start();$response->sendContent();$prefix=ob_get_clean();
+ check($response->getStatusCode()===206 && $response->headers->get('Content-Type')==='audio/mpeg' && $prefix===substr($bytes,0,16),'archived audio old link preserves MIME and byte range');
+}
 check(memory_get_peak_usage(true)<64*1024*1024,'migration and streaming stay within configured memory limit');
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);

@@ -150,7 +150,7 @@ class Controller extends BaseController
             ->where('extension', strtolower($request->route('extension')))
             ->firstOr(fn() => abort(404));
         if ($image->strategy?->key === \App\Enums\StrategyKey::Telegram
-            || (\App\Services\VideoMetadata::isVideo($image->extension) && $image->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection))) {
+            || (\App\Services\VideoMetadata::isMedia($image->extension) && $image->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection))) {
             return app(\App\Services\ArchivedImageOutput::class)->response($request, $image);
         }
         if (! $image->group?->configs->get(GroupConfigKey::IsEnableOriginalProtection)) {

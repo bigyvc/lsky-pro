@@ -1,7 +1,7 @@
 /* Experimental video preview. Raw HEVC is downloadable; browser codec support is not assumed. */
 (function (root) {
     'use strict';
-    const extensions = new Set(['mp4', 'mov', 'webm', 'hevc', 'h265', 'm4v', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', '3gp', 'm3u8']);
+    const extensions = new Set(['mp4', 'mov', 'webm', 'hevc', 'h265', 'm4v', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', '3gp', 'm3u8', 'mp3','flac','wav','m4a','aac','ogg','opus','wma','aiff','aif','ape']);
     function extension(url) {
         try {
             const parsed = new URL(url, root.location.href);
@@ -17,10 +17,11 @@
         const close = document.createElement('button'); close.type = 'button'; close.textContent = '关闭';
         dialog.append(title);
         let video;
-        if (['mp4', 'mov', 'm4v', 'webm', 'm3u8'].includes(extension(url))) {
-            video = document.createElement('video'); video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.setAttribute('controlslist', 'nodownload'); video.src = url;
+        const audio = ['mp3','flac','wav','m4a','aac','ogg','opus'].includes(extension(url));
+        if (audio || ['mp4', 'mov', 'm4v', 'webm', 'm3u8'].includes(extension(url))) {
+            video = document.createElement(audio ? 'audio' : 'video'); video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.setAttribute('controlslist', 'nodownload'); video.src = url;
             Object.assign(video.style, { display: 'block', width: '100%', maxHeight: '65vh', background: '#000' });
-            const hint = document.createElement('p'); hint.textContent = '播放取决于设备支持的视频编码；可在分享页查看下载设置。';
+            const hint = document.createElement('p'); hint.textContent = '播放取决于设备支持的媒体编码；可在分享页查看下载设置。';
             dialog.append(video, hint);
         } else {
             const hint = document.createElement('p'); hint.textContent = '此格式暂不提供网页播放，请在分享页查看是否开放原文件下载。'; dialog.append(hint);

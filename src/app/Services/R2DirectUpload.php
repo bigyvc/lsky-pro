@@ -93,8 +93,8 @@ class R2DirectUpload
         }
         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         if (! in_array($extension, $configs->get(GroupConfigKey::AcceptedFileSuffixes, []))) throw new UploadException('不支持的文件类型');
-        if (VideoMetadata::isVideo($extension) && $file['size'] > ($extension === 'm3u8' ? 1048576 : 512*1024*1024)) {
-            throw new UploadException($extension === 'm3u8' ? 'M3U8播放列表不能超过1MiB' : '视频不能超过512MiB');
+        if (VideoMetadata::isMedia($extension) && $file['size'] > ($extension === 'm3u8' ? 1048576 : 512*1024*1024)) {
+            throw new UploadException($extension === 'm3u8' ? 'M3U8播放列表不能超过1MiB' : '音视频不能超过512MiB');
         }
         if ($file['size'] / 1024 > $configs->get(GroupConfigKey::MaximumFileSize)) throw new UploadException('图片大小超出限制');
         return $strategy;
@@ -103,7 +103,7 @@ class R2DirectUpload
     private function mime(string $name): string
     {
         $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        if (VideoMetadata::isVideo($extension)) return VideoMetadata::mime($extension);
+        if (VideoMetadata::isMedia($extension)) return VideoMetadata::mime($extension);
         return match ($extension) {
             'jpg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif',
             'webp' => 'image/webp', 'bmp' => 'image/bmp', 'tif', 'tiff' => 'image/tiff',
@@ -302,7 +302,7 @@ class R2DirectUpload
             }
             $head = $gateway->head($meta['key']);
             if (! $this->objectValid($head, $meta, $id)) throw new UploadException('R2 文件长度或所属任务校验失败');
-            if (VideoMetadata::isVideo(pathinfo($meta['file']['name'], PATHINFO_EXTENSION))) {
+            if (VideoMetadata::isMedia(pathinfo($meta['file']['name'], PATHINFO_EXTENSION))) {
                 // Signed HTTPS GET: ffprobe can seek to MP4/MOV metadata without PHP buffering the video.
                 $dimensions = $gateway->videoMetadata($meta['key'], $meta['file']['name']);
             } else {

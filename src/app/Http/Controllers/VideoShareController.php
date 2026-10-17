@@ -19,7 +19,7 @@ class VideoShareController extends Controller
     private function find(Request $request): Image
     {
         $image = Image::where('key', $request->route('key'))->firstOrFail();
-        abort_unless(VideoMetadata::isVideo($image->extension), 404);
+        abort_unless(VideoMetadata::isMedia($image->extension), 404);
         return $image;
     }
 
@@ -37,7 +37,8 @@ class VideoShareController extends Controller
         $image = $this->readable($request);
         return response()->view('video.share', [
             'image'=>$image, 'canManage'=>$this->canManage($request, $image),
-            'playable'=>in_array(strtolower($image->extension), ['mp4','mov','m4v','webm','m3u8'], true),
+            'isAudio'=>VideoMetadata::isAudio($image->extension),
+            'playable'=>in_array(strtolower($image->extension), ['mp4','mov','m4v','webm','m3u8','mp3','flac','wav','m4a','aac','ogg','opus'], true),
         ])->header('Cache-Control', 'private, no-store')
           ->header('X-Robots-Tag', 'noindex, nofollow')
           ->header('Referrer-Policy', 'no-referrer');
@@ -61,7 +62,7 @@ class VideoShareController extends Controller
     {
         $image = $this->readable($request);
         // Ownership does not bypass the published download switch.
-        abort_unless((bool)$image->video_download_enabled, 403, '此视频未开放下载入口');
+        abort_unless((bool)$image->video_download_enabled, 403, '此媒体未开放下载入口');
         $response = $output->response($request, $image);
         $response->headers->set('Content-Disposition', HeaderUtils::makeDisposition(
             'attachment', $image->name, 'video.'.strtolower($image->extension)
