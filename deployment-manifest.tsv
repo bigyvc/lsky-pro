@@ -24,9 +24,10 @@ b01b7447571e2fb18fc78d5523bce036	1c851c7f78c2d7bdb722190e51462230	app/Services/R
 -	5f3dae0224306d5df335988799c82ead	public/static/large-image.svg
 247555cf6b81bfc0730aefa34c945efe	872e7b1839e6e793f7006ae656bac006	resources/views/admin/strategy/add.blade.php
 a8fb5c6a3f22ece984205575b047ee61	d2c79621079b427913bc34de0d57f1ff	resources/views/admin/strategy/edit.blade.php
-01a0a5220431e79ee95f40ad38a689c7	652ff21c9858b114bb57f0c3de3ad70b	resources/views/components/upload.blade.php
+01a0a5220431e79ee95f40ad38a689c7	cc378676736c145caaf6d000489c62d2	resources/views/components/upload.blade.php
 fa972b4ff379136ff6392c7b6dbc7184	db65c75d80206cfdea444901e0ca2035	routes/web.php
 -	99d0a886485c7b2344f91263d0500b51	app/Services/VideoMetadata.php
 -	09d0c4dfb861f96fc6fc8e980f465e28	database/migrations/2026_10_17_000001_add_video_download_enabled_to_images.php
 -	b52d7116fe2b6d8592dd14349d9f0c52	public/js/video-preview.js
 -	4b627ac8a05b17da88818526bdb66159	public/static/audio.svg
+-	0c4670751d8947d1d90c24233e3c5694	public/js/upload-links.js

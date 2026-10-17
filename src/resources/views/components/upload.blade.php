@@ -103,6 +103,7 @@
     <script src="{{ asset('js/blueimp-file-upload/jquery.fileupload.js') }}"></script>
     <script src="{{ asset('js/blueimp-load-image/load-image.all.min.js') }}"></script>
     <script src="{{ asset('js/clipboard/clipboard.min.js') }}"></script>
+    <script src="{{ asset('js/upload-links.js') }}?v={{ \App\Utils::assetVersion('js/upload-links.js') }}"></script>
 @endpush
 @push('scripts')
     <script src="{{ asset('js/chunk-upload.js') }}?v=20261016-3"></script>
@@ -117,16 +118,15 @@
         let pastedAction = '{{ Auth::check() ? Auth::user()->configs->get(\App\Enums\UserConfigKey::PastedAction) : \App\Enums\PastedAction::Waiting }}';
     </script>
     <script>
+        (new ClipboardJS('#links [data-link-value]', {
+            text: function(trigger) { return trigger.getAttribute('data-link-value'); }
+        })).on('success', function() { toastr.success('链接已复制'); })
+          .on('error', function() { toastr.warning('复制失败，请使用“复制全部”'); });
         (new ClipboardJS('#copy-all', {
             text: function(trigger) {
-                let text = '';
-                $('[data-tab="' + $('#link-tabs a.active').data('tab-name') + '"] p').each(function (i) {
-                    if (i !== 0) {
-                        text += '\r\n';
-                    }
-                    text += $(this).text();
-                });
-                return text;
+                return window.LskyUploadLinks.copyAll(
+                    document.getElementById('links'), $('#link-tabs a.active').data('tab-name')
+                );
             }
         })).on('success', function(e) {
             if (! $(e.trigger).attr('disabled')) {
@@ -302,21 +302,7 @@
 
                     // 追加链接
                     let links = response.data.links;
-                    // fork：链接旁边带一张小缩略图 —— 多图上传时一眼看出哪个链接对应哪张图。
-                    // 缩略图地址接口本来就返回了（thumbnail_url）；非图片文件没有该字段就不显示预览。
-                    let thumb = links.thumbnail_url ? links.thumbnail_url.toString() : '';
-                    for (let key in links) {
-                        // 行：缩略图固定 40x40 不压缩；文本 min-w-0 + truncate 单行省略，
-                        // 不再让长 URL 顶到卡片右边缘溢出（原来是 overflow-scroll 横向滚动条）。
-                        // select-all / cursor-pointer 原样保留，点行选中的复制行为不变。
-                        let row = '<div class="flex items-center gap-2 mt-1 min-w-0">';
-                        if (thumb) {
-                            row += '<img src="' + thumb + '" alt="缩略图" class="w-10 h-10 rounded object-cover bg-surface-2 shrink-0" onerror="this.style.display=\'none\'">';
-                        }
-                        row += '<p class="min-w-0 flex-1 truncate select-all bg-surface-2 hover:bg-surface-3 text-ink-2 rounded px-2 py-1 cursor-pointer">' + links[key].toString() + '</p>';
-                        row += '</div>';
-                        $('#links [data-tab="' + key + '"]').append(row);
-                    }
+                    window.LskyUploadLinks.append($links[0], links);
                     $links.show();
                     utils.setCapacityProgress(response.data.size);
                 } else {
