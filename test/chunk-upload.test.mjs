@@ -44,10 +44,10 @@ const context={console,crypto:webcrypto,Uint8Array,FormData:Form,XMLHttpRequest:
     localStorage:{getItem:k=>saved.get(k)||null,setItem:(k,v)=>saved.set(k,v),removeItem:k=>saved.delete(k)}};
 vm.createContext(context);vm.runInContext(source,context);
 const {CHUNK_SIZE,CONCURRENCY,retry,workers,create}=context.LskyChunkUpload;
-assert.equal(CHUNK_SIZE,50*MiB);assert.equal(CONCURRENCY,3);
+assert.equal(CHUNK_SIZE,50*MiB);assert.equal(CONCURRENCY,6);
 let active=0,maxActive=0,seen=[];
 await workers([0,1,2,3,4,5,6,7],async i=>{active++;maxActive=Math.max(active,maxActive);await new Promise(r=>setTimeout(r,3));seen.push(i);active--;},()=>false);
-assert.equal(maxActive,3);assert.equal(seen.length,8);
+assert.equal(maxActive,6);assert.equal(seen.length,8);
 let attempts=0;await retry(async()=>{if(++attempts<4)throw {retryable:true};},()=>false,async()=>{});assert.equal(attempts,4);
 attempts=0;await assert.rejects(retry(async()=>{attempts++;throw Object.assign(new Error('413'),{retryable:false});},()=>false,async()=>{}));assert.equal(attempts,1);
 let done=0,failed=0;
@@ -56,11 +56,11 @@ const preview={find:()=>({hide(){return this;},text(){return this;},css(){return
 function file(name) {return {name,size:354*MiB+634*1024,lastModified:1,slice(start,end){return{size:end-start,arrayBuffer:async()=>new Uint8Array(Math.min(end-start,MiB)).buffer};}};}
 const attach=create(picker,{url:'https://example/upload/chunks',csrf:'token',strategy:()=>1,fileConcurrency:1});
 const data={files:[file('large.png')],$preview:preview};attach(data);await data.submit();
-assert.equal(done,1);assert.equal(failed,0);assert.equal(peak,3);assert.equal(commitCount,1);
+assert.equal(done,1);assert.equal(failed,0);assert.equal(peak,6);assert.equal(commitCount,1);
 assert(!partRequests.includes(0),'resume skips previously acknowledged first part');
 assert.equal(partRequests.filter(i=>i===2).length,2,'failed part retries');
 assert.equal(saved.size,0,'successful completion clears resume identity');
 // An explicit file limit of one preserves serial relay uploads.
-peak=0;const a={files:[file('a.png')],$preview:preview},b={files:[file('b.png')],$preview:preview};attach(a);attach(b);await Promise.all([a.submit(),b.submit()]);assert.equal(peak,3);assert.equal(done,3);
+peak=0;const a={files:[file('a.png')],$preview:preview},b={files:[file('b.png')],$preview:preview};attach(a);attach(b);await Promise.all([a.submit(),b.submit()]);assert.equal(peak,6);assert.equal(done,3);
 let nativeCalls=0;const small={files:[file('small.png')],$preview:preview,submit:()=>nativeCalls++};small.files[0].size=100;attach(small);await small.submit();assert.equal(nativeCalls,0);assert.equal(done,4,'small relay files use the chunk completion path');
-console.log('PASS 50 MiB / 3 workers; retry; resume skips accepted parts; whole-page concurrency; completion; small-file compatibility');
+console.log('PASS 50 MiB / 6 workers; retry; resume skips accepted parts; whole-page concurrency; completion; small-file compatibility');

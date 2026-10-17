@@ -2,7 +2,7 @@
 (function (root) {
     'use strict';
     const CHUNK_SIZE = 50 * 1024 * 1024;
-    const CONCURRENCY = 3;
+    const CONCURRENCY = 6;
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
     async function retry(operation, isCancelled, delay = sleep) {

@@ -16,7 +16,7 @@ d8f0aaae7e952f99e4393ed656b73b1a	719ad8d4ba1bacd77e8619f293038ab5	app/Models/Ima
 46ee437ed425d141c503f54310187f3b	aae73d5406754df3007a64546acefde8	app/Services/R2DirectUpload.php
 b01b7447571e2fb18fc78d5523bce036	1c851c7f78c2d7bdb722190e51462230	app/Services/R2UploadGateway.php
 -	40a36e48da8d5cdf37788a9644449307	database/migrations/2026_10_14_120000_create_r2_archive_tables.php
-2c8dff44fc2235466ad5b123c41f013c	2ca61ebc900eb3251cdacd6e57ff30eb	public/js/chunk-upload.js
+2c8dff44fc2235466ad5b123c41f013c	efca7ec1eb5b0a259e990d62d6db6ab1	public/js/chunk-upload.js
 -	47c2e6e5774f151838d90fc115a68f35	public/js/hash-wasm/LICENSE
 -	df34cbfd7249a7283ab77606ad7bf089	public/js/hash-wasm/md5.umd.min.js
 -	53cc5622cbabb3fd973a4f08395542de	public/js/hash-wasm/sha1.umd.min.js
