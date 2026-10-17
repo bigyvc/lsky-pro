@@ -56,6 +56,7 @@ check(App\Models\TelegramFile::where('path',$image->pathname)->exists(),'image p
 $handle=$image->filesystem()->readStream($image->pathname);check(stream_get_contents($handle)===$png,'actual image filesystem opens the uploaded guest image');fclose($handle);
 
 check(str_contains($image->url,'/'.$image->key.'/photo.png'),'TG URL includes original filename');
+check(!$image->links->has('share_url'),'upload response only offers original links');
 $display=clone $image;$display->origin_name='云朵 - 我的楼兰.png';$display->name='physical-hash.png';
 check(rawurldecode(basename(parse_url($display->url,PHP_URL_PATH)))==='云朵 - 我的楼兰.png','Chinese and spaces kept in URL label independently of physical naming');
 $display->origin_name='0.png';check(str_ends_with($display->url,'/0.png'),'literal zero filename is preserved');
@@ -94,6 +95,12 @@ catch(League\Flysystem\UnableToWriteFile $e){check(!App\Models\TelegramFile::whe
 if (getenv('LSKY_TEST_VIDEO')) {
  require __DIR__.'/video-fixtures.php';
  $fixtures=videoFixtures($work);
+ $suffixRule=(new App\Http\Requests\Admin\GroupRequest())->rules()['configs.accepted_file_suffixes'];
+ foreach(App\Services\VideoMetadata::EXTENSIONS as $extension) {
+  check(!validator(['configs'=>['accepted_file_suffixes'=>[$extension]]],['configs.accepted_file_suffixes'=>$suffixRule])->fails(),'role permits media format '.$extension);
+ }
+ check(validator(['configs'=>['accepted_file_suffixes'=>['svg']]],['configs.accepted_file_suffixes'=>$suffixRule])->fails(),'SVG remains forbidden');
+
  $group->update(['configs'=>array_merge($base,[App\Enums\GroupConfigKey::AcceptedFileSuffixes=>array_merge($base[App\Enums\GroupConfigKey::AcceptedFileSuffixes],App\Services\VideoMetadata::EXTENSIONS)])]);
  foreach($fixtures as $ext=>$fixture) {
   $metadata=app(App\Services\VideoMetadata::class)->inspect($fixture,'clip.'.$ext);

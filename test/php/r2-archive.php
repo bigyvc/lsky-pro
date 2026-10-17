@@ -130,10 +130,9 @@ $handle=$zeroAdapter->readStream($zero->pathname);check(stream_get_contents($han
 foreach (['',null] as $empty) {$zero->path=$empty;check($zero->pathname==='zero.png','empty root directory remains unprefixed');}
 if (getenv('LSKY_TEST_VIDEO')) {
  require __DIR__.'/video-fixtures.php';$fixtures=videoFixtures($work);
- $bytes=file_get_contents($fixtures['mp4']);$video=imageAt('hevc.mp4',$bytes);$video->forceFill(['extension'=>'mp4','mimetype'=>'video/mp4','width'=>64,'height'=>48,'video_download_enabled'=>true])->save();
+ $bytes=file_get_contents($fixtures['mp4']);$video=imageAt('hevc.mp4',$bytes);$video->forceFill(['extension'=>'mp4','mimetype'=>'video/mp4','width'=>64,'height'=>48])->save();
  $policy->update(['enabled'=>true,'requested'=>true,'target_bytes'=>0]);$service->run();
  $video=$video->fresh();$videoJob=App\Models\R2ArchiveJob::where('image_id',$video->id)->first();
- check($video->video_download_enabled,'archive preserves per-video download setting');
  check($videoJob && $videoJob->phase==='done' && $video->strategy_id===$tg->id && !$src->fileExists('1/hevc.mp4'),'HEVC video archive verifies destination and releases R2 source');
  $request=Illuminate\Http\Request::create('/archive','GET',['path'=>'1/hevc.mp4'],[],[],['HTTP_RANGE'=>'bytes=0-15']);
  $response=$controller->archived($request,$r2->id);ob_start();$response->sendContent();$prefix=ob_get_clean();
@@ -141,9 +140,9 @@ if (getenv('LSKY_TEST_VIDEO')) {
 }
 if(getenv('LSKY_TEST_AUDIO')) {
  $bytes=file_get_contents($fixtures['mp3']);$audio=imageAt('tone.mp3',$bytes);
- $audio->forceFill(['extension'=>'mp3','mimetype'=>'audio/mpeg','width'=>0,'height'=>0,'video_download_enabled'=>false])->save();
+ $audio->forceFill(['extension'=>'mp3','mimetype'=>'audio/mpeg','width'=>0,'height'=>0])->save();
  $policy->update(['enabled'=>true,'requested'=>true,'target_bytes'=>0]);$service->run();$audio=$audio->fresh();
- check($audio->strategy_id===$tg->id && !$audio->video_download_enabled && !$src->fileExists('1/tone.mp3'),'audio archive preserves record and download setting');
+ check($audio->strategy_id===$tg->id && !$src->fileExists('1/tone.mp3'),'audio archive preserves record and releases R2 source');
  $request=Illuminate\Http\Request::create('/archive','GET',['path'=>'1/tone.mp3'],[],[],['HTTP_RANGE'=>'bytes=0-15']);
  $response=$controller->archived($request,$r2->id);ob_start();$response->sendContent();$prefix=ob_get_clean();
  check($response->getStatusCode()===206 && $response->headers->get('Content-Type')==='audio/mpeg' && $prefix===substr($bytes,0,16),'archived audio old link preserves MIME and byte range');

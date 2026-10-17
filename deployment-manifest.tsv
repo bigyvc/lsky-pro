@@ -6,7 +6,7 @@
 -	b85324094918710bb7c1dfcc4863b065	app/Http/Controllers/R2ArchiveController.php
 -	80162d75ea2a67c6fe5d8c609976b33c	app/Http/Controllers/R2DirectUploadController.php
 6d6330e8aefd4bede958dbdedfda2561	137f01d74909991adc45445acdad2393	app/Http/Requests/Admin/StrategyRequest.php
-d8f0aaae7e952f99e4393ed656b73b1a	bc471a3e99ab243a0bac24a202ddf911	app/Models/Image.php
+d8f0aaae7e952f99e4393ed656b73b1a	719ad8d4ba1bacd77e8619f293038ab5	app/Models/Image.php
 -	c0b550b85e5d43699b821714842ad04e	app/Models/R2ArchiveJob.php
 -	50da629d6c8dcc0c9932d6bfd5170d16	app/Models/R2ArchivePolicy.php
 -	5a47806316598ba60e83bedf01e73eb0	app/Services/ArchivedImageOutput.php
@@ -24,11 +24,9 @@ b01b7447571e2fb18fc78d5523bce036	1c851c7f78c2d7bdb722190e51462230	app/Services/R
 -	5f3dae0224306d5df335988799c82ead	public/static/large-image.svg
 247555cf6b81bfc0730aefa34c945efe	872e7b1839e6e793f7006ae656bac006	resources/views/admin/strategy/add.blade.php
 a8fb5c6a3f22ece984205575b047ee61	d2c79621079b427913bc34de0d57f1ff	resources/views/admin/strategy/edit.blade.php
-01a0a5220431e79ee95f40ad38a689c7	9bef851ba97f5a85620d983e64406821	resources/views/components/upload.blade.php
-fa972b4ff379136ff6392c7b6dbc7184	6f074d1e631007d52326b75928550981	routes/web.php
--	c07aa4aae2d34c6bc5dc58b0aebe68fc	app/Http/Controllers/VideoShareController.php
+01a0a5220431e79ee95f40ad38a689c7	652ff21c9858b114bb57f0c3de3ad70b	resources/views/components/upload.blade.php
+fa972b4ff379136ff6392c7b6dbc7184	db65c75d80206cfdea444901e0ca2035	routes/web.php
 -	99d0a886485c7b2344f91263d0500b51	app/Services/VideoMetadata.php
--	7c4d268a0339cad1f4ffd15028f3a0e2	database/migrations/2026_10_17_000001_add_video_download_enabled_to_images.php
--	c91f9b90526907dccbd5825805eda483	resources/views/video/share.blade.php
--	374d50e2d9f43a6a128a54592e291e66	public/js/video-preview.js
+-	09d0c4dfb861f96fc6fc8e980f465e28	database/migrations/2026_10_17_000001_add_video_download_enabled_to_images.php
+-	b52d7116fe2b6d8592dd14349d9f0c52	public/js/video-preview.js
 -	4b627ac8a05b17da88818526bdb66159	public/static/audio.svg

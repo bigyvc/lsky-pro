@@ -92,7 +92,6 @@ class Image extends Model
         'size' => 'float',
         'is_unhealthy' => 'bool',
         'permission' => 'integer',
-        'video_download_enabled' => 'boolean',
     ];
 
     protected ?Filesystem $filesystem = null;
@@ -249,7 +248,6 @@ class Image extends Model
                 $tag=\App\Services\VideoMetadata::isAudio($this->extension)?'audio':'video';
                 return collect([
                     'url'=>$this->url,
-                    'share_url'=>route('video.share', ['key'=>$this->key]),
                     'html'=>"&lt;{$tag} controls playsinline src=\"{$this->url}\"&gt;&lt;/{$tag}&gt;",
                     'bbcode'=>"[url={$this->url}]{$this->origin_name}[/url]",
                     'markdown'=>"[{$this->origin_name}]({$this->url})",

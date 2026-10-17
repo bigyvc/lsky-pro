@@ -97,7 +97,7 @@ env:
   #     （path→file_id/message_id 映射表；不用 Telegram 策略时建空表、无影响）
   #   2026-10-14 R2 归档策略/迁移记录：2026_10_14_120000_create_r2_archive_tables
   # 已安装的标准站点由entrypoint备份SQLite后自动补表；未安装/非标准数据库跳过。
-  #   2026-10-17 视频下载入口开关：2026_10_17_000001_add_video_download_enabled_to_images
+  #   2026-10-17 已退役字段，保留迁移兼容：2026_10_17_000001_add_video_download_enabled_to_images
   UPSTREAM_MIGRATION_COUNT: "15"
   # 「真升级用例」（tools/upgrade-test.sh）的升级基线：**不再写死**，由脚本向 GHCR 匿名 API
   # 现查「最新的 sha-<commit> tag，且 ≠ 本次构建的 commit」当基线。
@@ -615,8 +615,6 @@ jobs:
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php -d memory_limit=64M /tmp/telegram-upload.php
           docker cp test/php/r2-archive.php lsky-smoke:/tmp/r2-archive.php
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php -d memory_limit=64M /tmp/r2-archive.php
-          docker cp test/php/video-share.php lsky-smoke:/tmp/video-share.php
-          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php /tmp/video-share.php
           docker rm -f lsky-smoke
 
           {

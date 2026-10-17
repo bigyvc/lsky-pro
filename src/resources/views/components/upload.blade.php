@@ -53,7 +53,6 @@
                 <a href="javascript:void(0)" data-tab-name="markdown" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">Markdown</a>
                 <a href="javascript:void(0)" data-tab-name="markdown_with_link" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">Markdown with link</a>
                 <a href="javascript:void(0)" data-tab-name="thumbnail_url" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">Thumbnail url</a>
-                <a href="javascript:void(0)" data-tab-name="share_url" class="hover:bg-surface-2 flex justify-center items-center px-4 py-2 border-b-2 border-transparent whitespace-nowrap shrink-0">音视频分享页</a>
             </div>
             {{-- 手机：column 下这一行拉满宽度，justify-end 右对齐；桌面：标签栏 flex-1 撑开，这里自然靠右。 --}}
             <div class="flex items-center justify-end gap-1 shrink-0 pb-2">
@@ -68,7 +67,6 @@
             <div data-tab="markdown" class="hidden space-y-2"></div>
             <div data-tab="markdown_with_link" class="hidden space-y-2"></div>
             <div data-tab="thumbnail_url" class="hidden space-y-2"></div>
-            <div data-tab="share_url" class="hidden space-y-2"></div>
         </div>
     </div>
 </div>

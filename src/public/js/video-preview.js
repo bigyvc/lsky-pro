@@ -1,4 +1,4 @@
-/* Experimental video preview. Raw HEVC is downloadable; browser codec support is not assumed. */
+/* Media preview only. Browser codec support is not assumed. */
 (function (root) {
     'use strict';
     const extensions = new Set(['mp4', 'mov', 'webm', 'hevc', 'h265', 'm4v', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'mts', '3gp', 'm3u8', 'mp3','flac','wav','m4a','aac','ogg','opus','wma','aiff','aif','ape']);
@@ -9,7 +9,7 @@
         } catch (_) { return ''; }
     }
     function isVideo(url) { return extensions.has(extension(url)); }
-    function open(url, name, shareUrl) {
+    function open(url, name) {
         if (!isVideo(url)) return;
         const dialog = document.createElement('dialog');
         Object.assign(dialog.style, { width: 'min(94vw, 960px)', maxHeight: '90vh', padding: '20px', border: 'none', borderRadius: '16px', background: '#171b23', color: '#f3f4f6' });
@@ -19,22 +19,12 @@
         let video;
         const audio = ['mp3','flac','wav','m4a','aac','ogg','opus'].includes(extension(url));
         if (audio || ['mp4', 'mov', 'm4v', 'webm', 'm3u8'].includes(extension(url))) {
-            video = document.createElement(audio ? 'audio' : 'video'); video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.setAttribute('controlslist', 'nodownload'); video.src = url;
+            video = document.createElement(audio ? 'audio' : 'video'); video.controls = true; video.playsInline = true; video.preload = 'metadata'; video.src = url;
             Object.assign(video.style, { display: 'block', width: '100%', maxHeight: '65vh', background: '#000' });
-            const hint = document.createElement('p'); hint.textContent = '播放取决于设备支持的媒体编码；可在分享页查看下载设置。';
+            const hint = document.createElement('p'); hint.textContent = '播放取决于设备支持的媒体编码。';
             dialog.append(video, hint);
         } else {
-            const hint = document.createElement('p'); hint.textContent = '此格式暂不提供网页播放，请在分享页查看是否开放原文件下载。'; dialog.append(hint);
-        }
-        if (shareUrl) {
-            try {
-                const parsed = new URL(shareUrl, root.location.href);
-                if (parsed.origin === root.location.origin && /^\/v\/[A-Za-z0-9]+$/.test(parsed.pathname) && !parsed.search && !parsed.hash) {
-                    const share = document.createElement('a'); share.href = parsed.href; share.textContent = '分享页与下载设置';
-                    Object.assign(share.style, { color: '#9dbbff', display: 'inline-block', margin: '12px 20px 0 0' });
-                    dialog.append(share);
-                }
-            } catch (_) {}
+            const hint = document.createElement('p'); hint.textContent = '此格式暂不提供网页播放，请复制文件URL，使用支持此格式的播放器打开。'; dialog.append(hint);
         }
         dialog.append(close); document.body.append(dialog);
         let disposed = false;
@@ -52,9 +42,7 @@
         const url = image && image.getAttribute('data-original');
         if (!isVideo(url)) return;
         if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        let shareUrl;
-        try { shareUrl = JSON.parse(card.getAttribute('data-json') || '{}').links?.share_url; } catch (_) {}
-        event.preventDefault(); event.stopImmediatePropagation(); open(url, image.alt, shareUrl);
+        event.preventDefault(); event.stopImmediatePropagation(); open(url, image.alt);
     }, true);
     root.LskyVideoPreview = { isVideo, open };
 })(window);

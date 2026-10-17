@@ -1,6 +1,6 @@
 # Lsky Pro：R2 直传 + Telegram 存储 + 自动归档
 
-> **实验分支 `test/video-hevc`**：加入音乐/音频、更多视频格式、M3U8列表、媒体分享页及下载入口开关，不更新正式站点。先阅读 [分支范围、启用与限制](docs/video-hevc.md)。
+> **实验分支 `test/video-hevc`**：加入音乐/音频、更多视频格式、M3U8列表及原文件名直链；已移除独立分享页和下载开关，不更新正式站点。先阅读 [分支范围、启用与限制](docs/video-hevc.md)。
 
 基于 [Lsky Pro](https://github.com/lsky-org/lsky-pro) 的自维护 Docker Fork，保留多用户、图片标签、裁剪、明暗主题及手机端支持。
 
