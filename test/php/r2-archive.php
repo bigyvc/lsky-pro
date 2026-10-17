@@ -31,8 +31,10 @@ class ArchiveGateway extends App\Services\R2UploadGateway {
  public function bucketBytes():int{$n=$this->extra;foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root,FilesystemIterator::SKIP_DOTS)) as $f)if($f->isFile())$n+=$f->getSize();return $n;}
 }
 class ArchiveFilesystem extends League\Flysystem\Filesystem {
+ public array $labels=[];
  // Guzzle multipart owns its PHP resource and may close it after sending.
  public function writeStream(string $location,$contents,array $config=[]):void {
+  $this->labels[$location]=$config['telegram_filename']??null;
   parent::writeStream($location,$contents,$config);
   $multipart=new GuzzleHttp\Psr7\MultipartStream([['name'=>'document','contents'=>$contents,'filename'=>basename($location)]]);
   $multipart->close();
@@ -178,9 +180,12 @@ if (getenv('LSKY_TEST_VIDEO')) {
 }
 if(getenv('LSKY_TEST_AUDIO')) {
  $bytes=file_get_contents($fixtures['mp3']);$audio=imageAt('tone.mp3',$bytes);
- $audio->forceFill(['extension'=>'mp3','mimetype'=>'audio/mpeg','width'=>0,'height'=>0])->save();
+ $audio->forceFill(['origin_name'=>'双笙（陈元汐） – 我的一个道姑朋友.mp3','extension'=>'mp3','mimetype'=>'audio/mpeg','width'=>0,'height'=>0])->save();
+ $audioKey=$audio->key;
  $policy->update(['enabled'=>true,'requested'=>true,'target_bytes'=>0]);$service->run();$audio=$audio->fresh();
  check($audio->strategy_id===$tg->id && !$src->fileExists('1/tone.mp3'),'audio archive preserves record and releases R2 source');
+ $audioJob=App\Models\R2ArchiveJob::where('image_id',$audio->id)->firstOrFail();
+ check($dst->labels[$audioJob->target_path]===$audioKey.'-双笙（陈元汐） – 我的一个道姑朋友.mp3' && basename($audioJob->target_path)===$audioKey.'.mp3','archive labels use record key and original Unicode filename without changing mapping path');
  $request=Illuminate\Http\Request::create('/archive','GET',['path'=>'1/tone.mp3'],[],[],['HTTP_RANGE'=>'bytes=0-15']);
  $response=$controller->archived($request,$r2->id);ob_start();$response->sendContent();$prefix=ob_get_clean();
  check($response->getStatusCode()===206 && $response->headers->get('Content-Type')==='audio/mpeg' && $prefix===substr($bytes,0,16),'archived audio old link preserves MIME and byte range');

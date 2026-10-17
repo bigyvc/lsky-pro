@@ -85,6 +85,12 @@ class TelegramAdapter implements FilesystemAdapter
         $stat = @fstat($contents);
         $size = ($stat !== false && isset($stat['size'])) ? (int) $stat['size'] : 0;
         $mimeType = (string) ($config->get('mimetype') ?? $config->get('mime_type') ?? '');
+        // A human-readable channel label is independent of the persistent mapping path.
+        $filename = (string) ($config->get('telegram_filename') ?? basename($path));
+        $filename = str_replace(['/', chr(92)], '_', $filename);
+        $filename = preg_replace('/[\x00-\x1f\x7f]/u', '_', $filename) ?? '';
+        if ($filename === '' || $filename === '.' || $filename === '..') $filename = basename($path);
+
 
         // 先上传，成功后再替换映射、清理旧文件：上传失败时旧文件不受影响
         $old = $this->record($path);
@@ -96,7 +102,7 @@ class TelegramAdapter implements FilesystemAdapter
                     [
                         'name' => 'document',
                         'contents' => $contents,
-                        'filename' => basename($path),
+                        'filename' => $filename,
                     ],
                     ['name' => 'disable_notification', 'contents' => 'true'],
                 ],

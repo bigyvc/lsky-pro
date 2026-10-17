@@ -12,10 +12,11 @@ Illuminate\Support\Facades\Artisan::call('migrate',['--force'=>true]);
 Illuminate\Support\Facades\Cache::forever('configs',collect(config('convention.app')));
 function check($value,$message){if(!$value)throw new Exception($message);echo "PASS $message\n";}
 class TestTelegram extends App\Filesystem\TelegramAdapter {
- public int $sent=0;public array $deleted=[];public bool $badSize=false;public array $files=[];
+ public array $filenames=[];public int $sent=0;public array $deleted=[];public bool $badSize=false;public array $files=[];
  public function __construct(int $id,private string $rootDir){parent::__construct('TEST_TOKEN','-1001',$id,'http://telegram-bot-api:8081',120,$rootDir);mkdir($rootDir.'/123/documents',0700,true);}
  protected function callApi(string $method,array $options=[]):array{
   if($method==='sendDocument'){
+   $this->filenames[]=$options['multipart'][1]['filename'];
    $this->sent++;$file=$this->rootDir.'/123/documents/file_'.$this->sent.'.png';
    $in=$options['multipart'][1]['contents'];$out=fopen($file,'wb');$size=stream_copy_to_stream($in,$out);fclose($out);
    $id='file-'.$this->sent;$this->files[$id]=$file;
@@ -124,5 +125,14 @@ App\Models\TelegramFile::saving(function($row){if($row->path==='failed-map.png')
 $stream=fopen('php://temp','w+b');fwrite($stream,'abc');rewind($stream);
 try{$adapter->writeStream('failed-map.png',$stream,new League\Flysystem\Config());throw new Exception('expected mapping failure');}
 catch(League\Flysystem\UnableToWriteFile $e){check(str_contains($e->getMessage(),'映射保存失败') && in_array($adapter->sent,$adapter->deleted),'mapping persistence failure is visible and cleans only the new remote message');}finally{fclose($stream);}
+foreach ([null,'zGBFCE-双笙（陈元汐） – 我的一个道姑朋友.flac',"bad/dir\\name\r\n.flac"] as $label) {
+ $stream=fopen('php://temp','w+b');fwrite($stream,'abc');rewind($stream);
+ $config=$label===null?[]:['telegram_filename'=>$label];
+ $adapter->writeStream('channel-label.flac',$stream,new League\Flysystem\Config($config));
+ if(is_resource($stream))fclose($stream);
+ $expected=$label===null?'channel-label.flac':str_replace(['/',chr(92),"\r","\n"],'_',$label);
+ check(end($adapter->filenames)===$expected,'TG multipart uses safe channel label '.json_encode($label));
+ check(App\Models\TelegramFile::where('strategy_id',$strategy->id)->where('path','channel-label.flac')->exists(),'channel label never changes the TG mapping key');
+}
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
 foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);
