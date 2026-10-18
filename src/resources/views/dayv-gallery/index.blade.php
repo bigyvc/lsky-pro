@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#171b1e">
-    <meta name="description" content="DAYV 影像之间，以套图为单位，收藏日常里的片刻光影。">
+    <meta name="description" content="dayv {{ $site['title'] }}，以套图为单位，收藏日常里的片刻光影。">
     <title>{{ $initial ? $initial['title'].' · ' : '' }}{{ $site['title'] }}</title>
     <link rel="icon" href="/favicon.ico">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -15,7 +15,7 @@
 <body>
     <a class="skip" href="#collection">跳到影集</a>
     <header class="site-header">
-        <a class="brand" href="/" aria-label="DAYV 首页"><span class="brand-symbol" aria-hidden="true">d.</span><span>DAYV<span class="brand-sub">影像之间</span></span></a>
+        <a class="brand" href="/" aria-label="dayv 首页"><span>dayv<span class="brand-sub">{{ $site['title'] }}</span></span></a>
         <nav aria-label="主导航"><a class="nav-active" href="#collection">影集 <span aria-hidden="true">↗</span></a><button id="about-open" type="button">关于</button></nav>
     </header>
     <main>
@@ -29,7 +29,7 @@
             <div class="collection-bottom"><p id="gallery-status" role="status">正在打开影集…</p><button id="load-more" class="outline-button" type="button" hidden>再看一些 <span aria-hidden="true">↓</span></button></div>
         </section>
     </main>
-    <footer class="site-footer"><a class="footer-brand" href="/">DAYV <span>影像之间</span></a><p>以光为序，以影成集。</p><small>Design adapted from <a href="https://html5up.net/multiverse" target="_blank" rel="noopener noreferrer">Multiverse / HTML5 UP</a></small></footer>
+    <footer class="site-footer"><a class="footer-brand" href="/">dayv <span>{{ $site['title'] }}</span></a><p>以光为序，以影成集。</p><small>Design adapted from <a href="https://html5up.net/multiverse" target="_blank" rel="noopener noreferrer">Multiverse / HTML5 UP</a></small></footer>
     <dialog id="set-dialog" class="set-dialog" aria-labelledby="set-title">
         <header class="dialog-header"><div><span class="eyebrow">PHOTO COLLECTION</span><h2 id="set-title">影集</h2></div><button id="set-close" class="round-button" type="button" aria-label="关闭影集">×</button></header>
         <p id="set-meta" class="set-meta"></p><div id="set-images" class="set-images"></div><p class="set-hint">点开照片，慢慢看。</p>
@@ -40,7 +40,7 @@
         <button id="previous-photo" class="photo-arrow previous" type="button" aria-label="上一张">←</button><button id="next-photo" class="photo-arrow next" type="button" aria-label="下一张">→</button>
         <p id="lightbox-caption" class="lightbox-caption"></p>
     </dialog>
-    <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title"><button id="about-close" class="round-button" type="button" aria-label="关闭关于">×</button><p class="eyebrow">ABOUT THIS COLLECTION</p><h2 id="about-title">影像之间</h2><p>把零散的片刻，整理成一组组可以慢慢翻看的影集。这里按原帖组合收录照片，让每一组画面保留自己的节奏。</p><p>你可以从最新开始，也可以回到最早，或让随机带来一次偶遇。</p><small>界面设计改编自 <a href="https://html5up.net/multiverse" target="_blank" rel="noopener noreferrer">Multiverse by HTML5 UP</a>，保留原设计署名。</small></dialog>
+    <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title"><button id="about-close" class="round-button" type="button" aria-label="关闭关于">×</button><p class="eyebrow">ABOUT THIS COLLECTION</p><h2 id="about-title">{{ $site['title'] }}</h2><p>把零散的片刻，整理成一组组可以慢慢翻看的影集。这里按原帖组合收录照片，让每一组画面保留自己的节奏。</p><p>你可以从最新开始，也可以回到最早，或让随机带来一次偶遇。</p><small>界面设计改编自 <a href="https://html5up.net/multiverse" target="_blank" rel="noopener noreferrer">Multiverse by HTML5 UP</a>，保留原设计署名。</small></dialog>
     <noscript><p class="noscript">请启用 JavaScript 浏览分页影集。图片原链接仍可独立打开。</p></noscript>
 </body>
 </html>
