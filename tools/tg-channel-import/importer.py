@@ -275,14 +275,22 @@ async def collect(client, entity, args, root, env, api=None):
     print(json.dumps({'selected': count, 'posts': len(posts), 'mode': args.command}), flush=True)
 
 
-async def history_posts(client, entity, snapshot, offset):
+async def history_posts(client, entity, snapshot, offset, order='newest'):
     """Telethon paginates; keep an album across page boundaries, never across failures."""
-    pending = []; key = None; previous = offset or snapshot + 1
-    async for msg in client.iter_messages(entity, limit=None, offset_id=offset, max_id=snapshot + 1, wait_time=1):
-        if msg.id > snapshot or msg.id >= previous:
+    ascending = order == 'oldest'
+    above = [msg async for msg in client.iter_messages(entity, limit=1, offset_id=snapshot, reverse=True)] if snapshot else []
+    boundary_group = getattr(above[0], 'grouped_id', None) if above else None
+    pending = []; key = None; previous = offset if ascending else (offset or snapshot + 1)
+    options = dict(limit=None, offset_id=offset, max_id=snapshot + 1, wait_time=1)
+    if ascending:
+        options['reverse'] = True
+    async for msg in client.iter_messages(entity, **options):
+        if msg.id > snapshot or (msg.id <= previous if ascending else msg.id >= previous):
             raise ImportFailure('历史分页顺序异常，停止且不推进当前组游标')
         previous = msg.id
         current = post_key(msg)
+        if current[0] == 'g' and current[1] == boundary_group:
+            raise ImportFailure('历史上限截断了原媒体组，停止而不发送半组；需选择完整原帖边界')
         if pending and current != key:
             yield key, sorted(pending, key=lambda member: member.id)
             pending = []
@@ -322,12 +330,18 @@ async def history(client, entity, args, root, api=None):
     scope = api.check() if api else None
     job = state.job(scope, entity.id) if state else None
     ceiling = min(args.max_bytes, 8 * 1024**2)
+    order = getattr(args, 'order', 'newest')
+    until = getattr(args, 'until', 0)
+    if job and job.get('order', 'newest') != order:
+        raise ImportFailure('已有历史任务方向不同；先备份并reset采集状态，不能直接翻转旧游标')
+    if job and until and job.get('requested_until', job['snapshot']) != until:
+        raise ImportFailure('已有任务的快照上限不同，不能中途更改')
     if job and job['ceiling'] != ceiling:
         raise ImportFailure('不能在同一历史任务中改变文件大小筛选条件')
     if not job:
         latest = [msg async for msg in client.iter_messages(entity, limit=1)]
-        snapshot = latest[0].id if latest else 0
-        job = {'snapshot': snapshot, 'offset': 0, 'completed': False, 'ceiling': ceiling,
+        snapshot = min(latest[0].id, until) if latest and until else (latest[0].id if latest else 0)
+        job = {'order': order, 'requested_until': until, 'snapshot': snapshot, 'offset': 0, 'completed': False, 'ceiling': ceiling,
                'started_at': int(time.time()), 'updated_at': int(time.time()), 'stats': history_stats()}
         if state:
             state.checkpoint(scope, entity.id, job)
@@ -335,7 +349,7 @@ async def history(client, entity, args, root, api=None):
         report_history(job, 'already_completed'); return
     report_history(job, 'resuming' if job['offset'] else 'starting')
     processed = 0; last_report = time.monotonic()
-    async for group, members in history_posts(client, entity, job['snapshot'], job['offset']):
+    async for group, members in history_posts(client, entity, job['snapshot'], job['offset'], order):
         if state and any((row := state.get(scope, entity.id, msg.id)) and row[0] == 'uploading' for msg in members):
             raise ImportFailure('历史任务遇到发送结果不确定的记录，停止且不推进游标，请人工核对')
         reason = skip_reason(members, ceiling)
@@ -343,7 +357,7 @@ async def history(client, entity, args, root, api=None):
         if api and not reason:
             outcome, downloaded = await import_post(client, entity, members, root, state, scope, api, args)
         add_stats(job['stats'], members, reason, outcome, downloaded)
-        job['offset'] = min(msg.id for msg in members)
+        job['offset'] = (max if order == 'oldest' else min)(msg.id for msg in members)
         job['updated_at'] = int(time.time())
         if state:
             state.checkpoint(scope, entity.id, job, (members, reason) if reason else None)
@@ -360,6 +374,26 @@ async def history(client, entity, args, root, api=None):
     job['estimated_network_bytes'] = {'local_api_path': 3 * job['stats']['source_bytes'],
                                       'public_api_roundtrip': 5 * job['stats']['source_bytes']}
     report_history(job, 'completed')
+
+
+def reset_import_state(root, scope, channel, apply=False):
+    """Only this account/album/channel's collector bookkeeping, never Telegram sessions."""
+    state = State(root / 'imports.sqlite')
+    counts = {name: state.db.execute('SELECT COUNT(*) FROM '+name+' WHERE scope=? AND channel=?', (scope, channel)).fetchone()[0]
+              for name in ('imports', 'history_jobs', 'history_skips')}
+    pending = state.db.execute("SELECT COUNT(*) FROM imports WHERE scope=? AND channel=? AND phase='uploading'", (scope, channel)).fetchone()[0]
+    print(json.dumps({'mode': 'reset_preview', 'channel': channel, 'counts': counts, 'uncertain': pending}), flush=True)
+    if not apply:
+        return
+    if pending:
+        raise ImportFailure('存在发送结果不确定的记录，拒绝重置；先人工核对正在发送的任务')
+    backup = root / ('imports-before-reset-' + str(time.time_ns()) + '.sqlite')
+    with sqlite3.connect(backup) as target:
+        state.db.backup(target)
+    with state.db:
+        for name in counts:
+            state.db.execute('DELETE FROM '+name+' WHERE scope=? AND channel=?', (scope, channel))
+    print(json.dumps({'mode': 'reset_completed', 'backup': backup.name, 'session_preserved': True}), flush=True)
 
 
 async def run(args, root):
@@ -394,7 +428,10 @@ async def run(args, root):
             if env.get('IMPORT_AUTHORIZED') != 'yes':
                 raise ImportFailure('确认有使用授权后，设置IMPORT_AUTHORIZED=yes')
             api = Lsky(env)
-        if args.command in ('plan', 'import-history'):
+        if args.command == 'reset':
+            api = Lsky(env)
+            reset_import_state(root, api.check(), entity.id, args.apply)
+        elif args.command in ('plan', 'import-history'):
             await history(client, entity, args, root, api)
         else:
             await collect(client, entity, args, root, env, api)
@@ -407,14 +444,19 @@ async def run(args, root):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['login', 'preview', 'import', 'plan', 'import-history', 'status'])
+    parser.add_argument('command', choices=['login', 'preview', 'import', 'plan', 'import-history', 'reset', 'status'])
     parser.add_argument('--limit', type=int, default=20)
     parser.add_argument('--scan', type=int, default=200)
     parser.add_argument('--max-bytes', type=int, default=25 * 1024**2)
     parser.add_argument('--download-kib', type=int, default=1024, help='Source download average KiB/s (64..102400)')
     parser.add_argument('--interval', type=float, default=30, help='Seconds between imported source posts (3..3600)')
     parser.add_argument('--max-posts', type=int, default=0, help='Pause history after this many posts; 0=all')
+    parser.add_argument('--order', choices=['oldest', 'newest'], default='oldest', help='History direction, default oldest first')
+    parser.add_argument('--until', type=int, default=0, help='Inclusive source message upper bound; 0=latest snapshot')
+    parser.add_argument('--apply', action='store_true', help='Apply reset after creating a SQLite backup')
     args = parser.parse_args()
+    if args.until < 0 or (args.apply and args.command != 'reset'):
+        parser.error('until>=0；apply仅适用于reset')
     if not (64 <= args.download_kib <= 102400 and 3 <= args.interval <= 3600 and args.max_posts >= 0):
         parser.error('download-kib=64..102400，interval=3..3600，max-posts>=0')
     if not (1 <= args.limit <= 100 and args.limit <= args.scan <= 2000 and 1 <= args.max_bytes <= 50 * 1024**2):

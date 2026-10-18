@@ -34,5 +34,5 @@ fa972b4ff379136ff6392c7b6dbc7184	db65c75d80206cfdea444901e0ca2035	routes/web.php
 0e494999200917028a80003ca1457d2c	86cf77d8e8ad6772cc421cec01e6762f	app/Http/Controllers/Api/V1/ImageController.php
 79c6bf5f3d537d3409904df8b943e96e	6b9e680b2a59dbfb42a974c226c57d42	app/Http/Controllers/Api/V1/UserController.php
 1cfc620e13c2774ece22df66a1fd1b39	0b47f6fbb5f3f846780c9fe4a3a1d6c8	routes/api.php
--	daa7c27f398b22f29799d1331b4e13b0	app/Services/TelegramPhotoImport.php
+-	93134fb8024b537aa063d9a1cccd3036	app/Services/TelegramPhotoImport.php
 -	a34f1e8820c3e187a7e12507c713a6ef	app/Http/Controllers/Api/V1/TelegramPhotoController.php

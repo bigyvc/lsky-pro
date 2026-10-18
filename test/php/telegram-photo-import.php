@@ -77,6 +77,17 @@ $adapter->loseResponse=true;
 try{$import->store(req('123:g4'),$images);throw new Exception('lost response accepted');}catch(RuntimeException $e){}
 $attempts=$adapter->sends;
 try{$import->store(req('123:g4'),$images);throw new Exception('uncertain group resent');}catch(App\Exceptions\UploadException $e){check($adapter->sends===$attempts&&App\Models\Image::count()===$before,'lost TG response cannot create false success or automatic duplicates');}
+// A deleted group must not return cached links to deleted records.
+$adapter->loseResponse=false;
+$oldKeys=array_column($result['images'],'key');
+App\Models\Image::where('key',$oldKeys[0])->delete();
+$attempts=$adapter->sends;
+try{$import->store(req('123:g1'),$images);throw new Exception('partly deleted group resent');}catch(App\Exceptions\UploadException $e){check($adapter->sends===$attempts,'partly deleted group requires reconciliation');}
+App\Models\Image::whereIn('key',$oldKeys)->delete();
+$fresh=$import->store(req('123:g1'),$images);
+check($adapter->sends===$attempts+1 && !array_intersect($oldKeys,array_column($fresh['images'],'key')),'fully deleted completed group can be imported with new records');
+check(count(glob($work.'/storage/app/tg-photo-import/*.retired-*'))===1,'old completed ledger is retained for audit');
+check($import->store(req('123:g1'),$images)===$fresh && $adapter->sends===$attempts+1,'new completed group remains idempotent');
 $iterator=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
 foreach($iterator as $item){if($item->isDir()&&!$item->isLink())rmdir($item->getPathname());else unlink($item->getPathname());}
 rmdir($work);

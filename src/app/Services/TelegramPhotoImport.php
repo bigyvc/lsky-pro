@@ -61,8 +61,15 @@ class TelegramPhotoImport
             if (is_file($path)) {
                 $old=json_decode(file_get_contents($path),true);
                 if (($old['fingerprint']??'')!==$fingerprint) throw new UploadException('相同源帖内容发生变化，停止重复发送');
-                if (($old['phase']??'')==='done') return $old['result'];
-                throw new UploadException('该照片组上次结果不确定或未完成，请人工核对，不自动重发');
+                if (($old['phase']??'')!=='done') throw new UploadException('该照片组上次结果不确定或未完成，请人工核对，不自动重发');
+                $keys=array_column($old['result']['images']??[], 'key');
+                if (!$keys || count(array_unique($keys))!==count($keys)) throw new UploadException('照片组完成状态损坏，请人工核对');
+                $remaining=Image::where('user_id',$user->id)->whereIn('key',$keys)->count();
+                if ($remaining===count($keys)) return $old['result'];
+                if ($remaining>0) throw new UploadException('原照片组只有部分图床记录被删除，停止重复发送');
+                // All published records were deleted by the owner. Preserve the old completed
+                // ledger for audit, then allow a fresh import under a new random namespace.
+                if (!rename($path,$path.'.retired-'.bin2hex(random_bytes(8)))) throw new RuntimeException('无法备份已删除照片组状态');
             }
             $meta=['fingerprint'=>$fingerprint,'phase'=>'preparing','source_group'=>$request->input('source_group')];
             $this->write($path,$meta);

@@ -21,9 +21,10 @@ def photo(n, group=None, size=3, **kw):
 class Telegram:
     def __init__(self, messages, fail_at=None):
         self.messages = messages; self.downloads = []; self.fail_at = fail_at; self.requests = []
-    async def iter_messages(self, entity, limit=None, offset_id=0, max_id=0, wait_time=None):
+    async def iter_messages(self, entity, limit=None, offset_id=0, max_id=0, wait_time=None, reverse=False):
         self.requests.append(dict(limit=limit, offset_id=offset_id, max_id=max_id))
-        rows = [msg for msg in self.messages if (not offset_id or msg.id < offset_id) and (not max_id or msg.id < max_id)]
+        rows = [msg for msg in self.messages if (not offset_id or (msg.id > offset_id if reverse else msg.id < offset_id)) and (not max_id or msg.id < max_id)]
+        if reverse: rows = list(reversed(rows))
         for n, msg in enumerate(rows[:limit] if limit else rows):
             if msg.id == self.fail_at:
                 raise OSError('metadata interrupted')
@@ -150,6 +151,45 @@ class HistoryTests(unittest.TestCase):
                 asyncio.run(m.history(Telegram([photo(8,20),photo(7,20)]),NS(id=1),args(),root,api))
             self.assertEqual(api.groups,[])
             self.assertEqual(m.State(root/'imports.sqlite').job('scope',1)['offset'],0)
+
+    def test_oldest_first_complete_groups_and_resume_at_max_member(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);api=API();tg=Telegram([photo(7),photo(6,20),photo(5,20),photo(3,10),photo(2,10),photo(1)])
+            options=args(max_posts=2);options.order='oldest';options.until=6
+            run(m.history(tg,NS(id=1),options,root,api))
+            state=m.State(root/'imports.sqlite');job=state.job('scope',1)
+            self.assertEqual(job['offset'],3);self.assertEqual(job['snapshot'],6)
+            options.max_posts=0
+            run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(api.groups,[('1:s1',['mzt-1.jpg']),('1:g10',['mzt-2.jpg','mzt-3.jpg']),('1:g20',['mzt-5.jpg','mzt-6.jpg'])])
+            self.assertEqual(tg.downloads,[1,2,3,5,6]);self.assertTrue(state.job('scope',1)['completed'])
+            options.order='newest'
+            with self.assertRaises(m.ImportFailure),redirect_stdout(io.StringIO()):
+                asyncio.run(m.history(tg,NS(id=1),options,root,api))
+
+    def test_inclusive_upper_bound_cannot_split_a_source_album(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);api=API();tg=Telegram([photo(7,20),photo(6,20),photo(1)])
+            options=args();options.order='oldest';options.until=6
+            with self.assertRaises(m.ImportFailure),redirect_stdout(io.StringIO()):
+                asyncio.run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(tg.downloads,[]);self.assertEqual(api.groups,[])
+
+    def test_reset_is_scoped_backed_up_and_preserves_user_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);state=m.State(root/'imports.sqlite')
+            state.save('scope',1,2,'done','sha');state.save('other',1,2,'done','sha')
+            (root/'user.session').write_bytes(b'private session')
+            with redirect_stdout(io.StringIO()):m.reset_import_state(root,'scope',1)
+            self.assertIsNotNone(state.get('scope',1,2))
+            with redirect_stdout(io.StringIO()):m.reset_import_state(root,'scope',1,True)
+            self.assertIsNone(state.get('scope',1,2));self.assertIsNotNone(state.get('other',1,2))
+            self.assertEqual((root/'user.session').read_bytes(),b'private session')
+            backups=list(root.glob('imports-before-reset-*.sqlite'));self.assertEqual(len(backups),1)
+            self.assertIsNotNone(m.State(backups[0]).get('scope',1,2))
+            state.save('scope',1,3,'uploading','sha')
+            with self.assertRaises(m.ImportFailure),redirect_stdout(io.StringIO()):m.reset_import_state(root,'scope',1,True)
+            self.assertIsNotNone(state.get('scope',1,3))
 
     def test_large_history_has_no_recent_window_limit(self):
         with tempfile.TemporaryDirectory() as tmp:

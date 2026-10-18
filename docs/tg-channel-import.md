@@ -155,7 +155,7 @@ docker compose -p tg-import \
   run --rm collector import-history --max-posts 20 --download-kib 1024 --interval 30
 ```
 
-从最新往最老搬运，不把全部消息载入内存。Telethon自动翻页，原帖照片组跨页时继续收齐后整组处理，只有正常读到历史末尾才提交最后一组。第一次启动固定最新消息ID；后来新增的帖子不加入该任务，避免全量搬运一直追赶变化的频道。
+默认从最老往最新搬运（--order oldest），可显式选择--order newest；不把全部消息载入内存。Telethon自动翻页，原帖照片组跨页时继续收齐后整组处理，只有正常读到历史末尾才提交最后一组。第一次启动固定最新消息ID；后来新增的帖子不加入该任务，避免全量搬运一直追赶变化的频道。
 
 `--max-posts 20`在本次处理20个原帖后暂停，包括已完成跳过和非照片帖子；不会拆组。以前最近20张的已成功记录会复用，不重新下载或重发。结果不确定、旧版仅导入半组的记录会停止任务，不能删库强行重试。
 
@@ -196,8 +196,52 @@ docker compose -p tg-import \
   run --rm collector status
 ```
 
-`offset`是已处理完整原帖的最小消息ID（下次只取更老消息）；`imported`为本历史任务确认的新图数量，`reused`为已有成功记录，`download_bytes`仅统计已确认成功新帖的源下载量，失败时已用掉的流量不会计入。完成标记表示整个快照扫描完成，仍需检查跳过原因；不表示频道所有类型都已搬运。
+`offset`是已处理完整原帖的边界：oldest模式取组内最大ID（下次只取更新消息），newest模式取最小ID（下次只取更老消息）；`imported`为本历史任务确认的新图数量，`reused`为已有成功记录，`download_bytes`仅统计已确认成功新帖的源下载量，失败时已用掉的流量不会计入。完成标记表示整个快照扫描完成，仍需检查跳过原因；不表示频道所有类型都已搬运。
 
 游标、累计统计与跳过原因写入原`/opt/tg-import/state/imports.sqlite`，每个整帖确认后落盘。如果成功记录已写入而游标写入中断，下次复用该帖记录再推进，不重复发送；发送结果不确定则停在原游标，人工核对后处理。未完成照片组不会因为分页或网络异常被当成完成。
 
 主动强制停止可用`docker stop -t 120 tg-import-history`，但发送中的中断可能留下`uploading`不确定状态，需人工核对；优先让`--max-posts`的小批任务在整帖边界自然暂停。不要删除会话、状态库或Bot API的TDLib数据，也不要改动任务对应的TG策略/相册。最低磁盘保留2GiB；服务端TG缓存沿用原清理器（例如SJC的15GiB压力上限），此工具不删除其缓存。
+
+
+## 8. 删除测试媒体后，从最早历史重新搬运
+
+本版本新历史任务默认`--order oldest`，按消息ID从小到大搬运，源帖组内也从小到大。`--until 22569`将上限固定为22569，消息缺失、非照片或不符合条件的帖子照常跳过，不要求消息ID连续。上限如果截断某个媒体组，会停止而不发送半组。
+
+已建立的逆序任务不能原地翻转游标；即使尚未搬运也先重置采集状态。**先停止旧后台搬运，确认终端中没有其他采集进程，再更新图床与采集器。** 已停止的旧`tg-import-history`容器仍保存旧命令/镜像，不能用`docker start`启动它来测试新方向；可以为新任务使用不同容器名。
+
+只有确认目标频道和图床中相应测试媒体已经删除、希望重新搬运时才执行reset。它只处理当前Token账号/策略/相册/源频道对应的采集记录，不删除其他来源，不操作TG频道，不清空图床数据库，不改API凭据或用户登录会话。
+
+```bash
+# 先预览对应采集记录数量，不修改：
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run --rm collector reset
+
+# 确认后执行，自动先备份整个采集SQLite到state目录：
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run --rm collector reset --apply
+```
+
+有`uploading`不确定记录时拒绝重置，必须先人工核对，不能以重置掩盖可能仍在发送的任务。备份名形如`imports-before-reset-…sqlite`，保存原状态；`user.session`和私有env不动。
+
+**此次还需要支持重新导入的图床镜像。** 图床会核对原已完成照片组的记录：全部仍在则复用；只删除一部分则停止；全部已删除才归档原完成状态并建立新组与新链接。原状态保留为`storage/app/tg-photo-import/*.retired-*`，未完成或发送结果不确定的状态不会自动重置，不盲目返回已经删除的旧链接。
+
+准备就绪后先在最早历史试跑20个原帖：
+
+```bash
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run --rm collector import-history --order oldest --until 22569 --max-posts 20 --download-kib 1024 --interval 30
+```
+
+验收后后台继续同一方向/上限，使用新容器名避免误启旧任务：
+
+```bash
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run -d --name tg-import-history-oldest collector \
+  import-history --order oldest --until 22569 --download-kib 1024 --interval 30
+```
+
+TG的`telegram_files`是文件路径→file_id映射，图床`images`是资源记录；另外还有R2归档映射、服务端照片组幂等状态、采集器去重/游标。这些不是同一张表。正常删除资源时应由应用维护映射；发现残留时先检查资源数、引用及归档任务，再备份后清理孤立行。不要因为删了测试媒体就整库清空，更不能删除存储策略、登录会话或Bot API的TDLib目录。reset本身不会删除这些服务端数据。
