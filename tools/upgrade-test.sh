@@ -608,7 +608,7 @@ done
 grep -E '自动补入|自动迁移|迁移前已备份' "$LOGDIR/phase4b-new.log" | sed 's/^/    /'
 grep -q '自动迁移完成' "$LOGDIR/phase4b-new.log" \
     || { echo "::error::自动迁移没报成功（老站点的新表应当被自动补上）"; exit 1; }
-grep -q '自动补入 6 个新迁移文件' "$LOGDIR/phase4b-new.log" \
+grep -q '自动补入 7 个新迁移文件' "$LOGDIR/phase4b-new.log" \
     || { echo "::error::没有把缺失的迁移文件自动补进卷"; exit 1; }
 
 docker run --rm -i -v "$VOL":/var/www/html --entrypoint sh "$NEW_REF" > "$LOGDIR/phase4b-out.out" 2>&1 <<'EOSH'
@@ -623,7 +623,7 @@ echo "HAS_TAGS=".(in_array("tags", $tabs) ? "yes" : "no").PHP_EOL;
 echo "HAS_IMAGE_TAG=".(in_array("image_tag", $tabs) ? "yes" : "no").PHP_EOL;
 echo "HAS_TELEGRAM_FILES=".(in_array("telegram_files", $tabs) ? "yes" : "no").PHP_EOL;
 echo "HAS_R2_ARCHIVE=".(in_array("r2_archive_policies", $tabs) && in_array("r2_archive_jobs", $tabs) ? "yes" : "no").PHP_EOL;
-echo "HAS_GALLERY=".(in_array("gallery_posts", $tabs) && in_array("gallery_post_images", $tabs) && in_array("gallery_site_settings", $tabs) ? "yes" : "no").PHP_EOL;
+echo "HAS_GALLERY=".(in_array("gallery_posts", $tabs) && in_array("gallery_post_images", $tabs) && in_array("gallery_site_settings", $tabs) && in_array("gallery_video_metadata", $tabs) ? "yes" : "no").PHP_EOL;
 echo "MIGRATIONS_ROWS=".$db->query("SELECT COUNT(*) FROM migrations")->fetchColumn().PHP_EOL;
 '
 echo "VOLUME_MIGRATION_FILES=$(ls database/migrations/*.php 2>/dev/null | wc -l | tr -d ' ')"
@@ -636,8 +636,8 @@ assert_eq "$LOGDIR/phase4b-out.out" HAS_IMAGE_TAG   "yes" "image_tag 表被自�
 assert_eq "$LOGDIR/phase4b-out.out" HAS_TELEGRAM_FILES "yes" "telegram_files 表被自动建好"
 assert_eq "$LOGDIR/phase4b-out.out" HAS_R2_ARCHIVE "yes" "R2 归档两张表被自动建好"
 assert_eq "$LOGDIR/phase4b-out.out" HAS_GALLERY "yes" "图库索引与配置表被自动建好"
-assert_eq "$LOGDIR/phase4b-out.out" MIGRATIONS_ROWS "16"  "记账表涨到 16 条（上游 10 + fork 6）"
-assert_eq "$LOGDIR/phase4b-out.out" VOLUME_MIGRATION_FILES "16" "缺失的迁移文件被自动补进卷"
+assert_eq "$LOGDIR/phase4b-out.out" MIGRATIONS_ROWS "17"  "记账表涨到 17 条（上游 10 + fork 7）"
+assert_eq "$LOGDIR/phase4b-out.out" VOLUME_MIGRATION_FILES "17" "缺失的迁移文件被自动补进卷"
 assert_eq "$LOGDIR/phase4b-out.out" DB_ROWS         "$(key "$SNAP_BEFORE" DB_ROWS)"        "哨兵行数没变"
 assert_eq "$LOGDIR/phase4b-out.out" DB_FINGERPRINT  "$(key "$SNAP_BEFORE" DB_FINGERPRINT)" "哨兵数据指纹逐字节不变"
 dbk=$(key "$LOGDIR/phase4b-out.out" AUTO_BACKUPS)

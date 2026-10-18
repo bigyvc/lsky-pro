@@ -12,7 +12,7 @@ class GallerySettings
 
     public function read(): array
     {
-        $defaults=['enabled'=>false,'host'=>self::routeHost(),'title'=>'DAYV · 影像之间','user_id'=>0,'album_id'=>0];
+        $defaults=['enabled'=>false,'host'=>self::routeHost(),'title'=>'DAYV · 影像之间','user_id'=>0,'album_id'=>0,'video_album_id'=>0];
         try {
             $payload=\Illuminate\Support\Facades\DB::table('gallery_site_settings')->where('id',1)->value('payload');
             $data=$payload ? json_decode($payload,true) : null;

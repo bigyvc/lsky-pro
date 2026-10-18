@@ -16,7 +16,7 @@
     <a class="skip" href="#collection">跳到图集</a>
     <header class="site-header">
         <a class="brand" href="/" aria-label="dayv 首页"><span class="brand-lockup"><span class="brand-name">dayv</span><span class="brand-sub" aria-label="{{ $site['title'] }}">@foreach(preg_split('//u', $site['title'], -1, PREG_SPLIT_NO_EMPTY) as $character)<span aria-hidden="true">{{ $character }}</span>@endforeach</span></span></a>
-        <nav aria-label="主导航"><a class="nav-active" href="#collection">图集 <span aria-hidden="true">↗</span></a><button id="about-open" type="button">关于</button></nav>
+        <nav aria-label="主导航"><a class="nav-active" href="#collection">图集 <span aria-hidden="true">↗</span></a><a href="/videos">视频</a><button id="about-open" type="button">关于</button></nav>
     </header>
     <main>
         <section class="intro" aria-labelledby="intro-title">

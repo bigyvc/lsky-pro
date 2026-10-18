@@ -12,7 +12,7 @@ class GalleryDomainIsolation
     {
         $s=app(GallerySettings::class)->read();
         if (strtolower($request->getHost())===$s['host']) {
-            abort_unless($s['enabled']===true && preg_match('~^/(?:$|sets/[a-f0-9]{32}$|gallery-api/|gallery-media/)~D',$request->getPathInfo()),404);
+            abort_unless($s['enabled']===true && preg_match('~^/(?:$|sets/[a-f0-9]{32}$|videos(?:/[A-Za-z0-9]{1,64})?$|gallery-api/|gallery-media/|gallery-video-media/)~D',$request->getPathInfo()),404);
         }
         return $next($request);
     }

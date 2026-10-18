@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\GalleryController;
+use App\Http\Controllers\GalleryVideoController;
 use App\Http\Middleware\GalleryAccess;
 use App\Services\GallerySettings;
 use Illuminate\Support\Facades\Route;
@@ -16,7 +17,12 @@ Route::domain(GallerySettings::routeHost())->middleware(GalleryAccess::class)
     ])->group(function () {
     Route::get('/',[GalleryController::class,'index']);
     Route::get('/sets/{key}',[GalleryController::class,'index'])->where('key','[a-f0-9]{32}');
+    Route::get('/videos',[GalleryVideoController::class,'index']);
+    Route::get('/videos/{key}',[GalleryVideoController::class,'index'])->where('key','[A-Za-z0-9]{1,64}');
+    Route::match(['GET','HEAD'],'/gallery-video-media/{key}/{kind}',[GalleryVideoController::class,'media'])
+        ->where('key','[A-Za-z0-9]{1,64}')->where('kind','poster|original');
     Route::prefix('gallery-api')->middleware('throttle:120,1')->group(function () {
+        Route::get('videos',[GalleryVideoController::class,'listing']);
         Route::get('sets',[GalleryController::class,'listing']);
         Route::get('sets/{key}',[GalleryController::class,'detail'])->where('key','[a-f0-9]{32}');
     });
