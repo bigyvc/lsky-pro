@@ -5,11 +5,13 @@ on:
     paths:
       - 'tools/tg-channel-import/**'
       - 'test/tg-channel-import.test.py'
+      - 'test/tg-channel-history.test.py'
       - '.github/workflows/tg-channel-import.yaml'
   pull_request:
     paths:
       - 'tools/tg-channel-import/**'
       - 'test/tg-channel-import.test.py'
+      - 'test/tg-channel-history.test.py'
       - '.github/workflows/tg-channel-import.yaml'
 permissions:
   contents: read
@@ -19,7 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: State and API behavior regressions
-        run: python3 test/tg-channel-import.test.py
+        run: |
+          python3 test/tg-channel-import.test.py
+          python3 test/tg-channel-history.test.py
       - name: Build independent collector image
         run: docker build -t lsky-channel-import:ci tools/tg-channel-import
       - name: CLI and offline state smoke test

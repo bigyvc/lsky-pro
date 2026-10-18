@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 from urllib.parse import urlsplit
 
 
@@ -128,7 +129,24 @@ class State:
         self.db.execute('''CREATE TABLE IF NOT EXISTS imports (
             scope TEXT, channel INTEGER, message INTEGER, phase TEXT, sha256 TEXT,
             result TEXT, PRIMARY KEY(scope,channel,message))''')
+        self.db.execute('''CREATE TABLE IF NOT EXISTS history_jobs (
+            scope TEXT, channel INTEGER, data TEXT, PRIMARY KEY(scope,channel))''')
+        self.db.execute('''CREATE TABLE IF NOT EXISTS history_skips (
+            scope TEXT, channel INTEGER, message INTEGER, reason TEXT,
+            PRIMARY KEY(scope,channel,message))''')
         self.db.commit()
+
+    def job(self, scope, channel):
+        row = self.db.execute('SELECT data FROM history_jobs WHERE scope=? AND channel=?', (scope, channel)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def checkpoint(self, scope, channel, job, skipped=None):
+        with self.db:
+            if skipped:
+                members, reason = skipped
+                self.db.executemany('INSERT OR REPLACE INTO history_skips VALUES (?,?,?,?)',
+                    [(scope, channel, member.id, reason) for member in members])
+            self.db.execute('INSERT OR REPLACE INTO history_jobs VALUES (?,?,?)', (scope, channel, json.dumps(job)))
 
     def get(self, scope, channel, message):
         return self.db.execute('SELECT phase,result FROM imports WHERE scope=? AND channel=? AND message=?',
@@ -165,6 +183,79 @@ def select_posts(messages, limit, scan):
     return selected
 
 
+def post_key(msg):
+    gid = getattr(msg, 'grouped_id', None)
+    return ('g', gid) if gid is not None else ('s', msg.id)
+
+
+def skip_reason(members, max_bytes):
+    if any(getattr(msg, 'noforwards', False) for msg in members):
+        return 'protected'
+    if not all(getattr(msg, 'photo', None) for msg in members):
+        return 'non_photo_or_mixed'
+    if any(not 0 < int(getattr(getattr(msg, 'file', None), 'size', 0) or 0) <= max_bytes for msg in members):
+        return 'unknown_or_oversize'
+    return None
+
+
+class DownloadPacer:
+    """Bound average source download speed; at most one Telegram chunk of burst."""
+    def __init__(self, kib):
+        self.rate = kib * 1024
+
+    def callback(self):
+        started = time.monotonic()
+        async def progress(received, total):
+            delay = received / self.rate - (time.monotonic() - started)
+            if delay > 0:
+                await asyncio.sleep(delay)
+        return progress
+
+
+async def import_post(client, entity, members, root, state, scope, api, args):
+    old = [state.get(scope, entity.id, msg.id) for msg in members]
+    if any(row and row[0] == 'uploading' for row in old):
+        raise ImportFailure('该源帖存在结果不确定的上传，请先人工核对，不自动重发')
+    if all(row and row[0] == 'done' for row in old):
+        return 'reused', 0
+    if any(row for row in old):
+        raise ImportFailure('源帖已有部分单张导入记录，停止；不会重复发送或拆组')
+    ceiling = min(args.max_bytes, 8 * 1024**2)
+    sizes = [int(getattr(msg.file, 'size', 0) or 0) for msg in members]
+    if shutil.disk_usage(root).free < sum(sizes) + 2 * 1024**3:
+        raise ImportFailure('剩余磁盘不足，至少保留2GiB')
+    source_group = str(entity.id) + ':' + post_key(members[0])[0] + str(post_key(members[0])[1])
+    downloaded = 0
+    with tempfile.TemporaryDirectory(prefix='download-', dir=root) as temp:
+        items = []
+        for msg in members:
+            path = Path(temp) / ('mzt-' + str(msg.id) + '.jpg')
+            options = {'file': str(path)}
+            if getattr(args, 'download_kib', 0):
+                options['progress_callback'] = DownloadPacer(args.download_kib).callback()
+            await client.download_media(msg, **options)
+            if not path.is_file() or not 0 < path.stat().st_size <= ceiling:
+                raise ImportFailure('下载照片为空或超限，停止整组')
+            downloaded += path.stat().st_size
+            items.append({'path': path, 'filename': path.name, 'hashes': digest(path)})
+        # All member intents become durable together before a potentially uncertain POST.
+        with state.db:
+            for msg, item in zip(members, items):
+                state.db.execute('INSERT OR REPLACE INTO imports VALUES (?,?,?,?,?,?)',
+                    (scope, entity.id, msg.id, 'uploading', item['hashes']['sha256'], None))
+        results = await asyncio.to_thread(api.upload_group, items, source_group)
+        if len(results) != len(members):
+            raise ImportFailure('照片组回包不完整，不自动重发')
+        with state.db:
+            for msg, result in zip(members, results):
+                state.db.execute('UPDATE imports SET phase=?,result=? WHERE scope=? AND channel=? AND message=?',
+                    ('done', json.dumps(result), scope, entity.id, msg.id))
+        for msg, result in zip(members, results):
+            print(json.dumps({'imported': msg.id, 'key': result['key'], 'source_group': source_group}), flush=True)
+    await asyncio.sleep(getattr(args, 'interval', 3))
+    return 'imported', downloaded
+
+
 async def collect(client, entity, args, root, env, api=None):
     state = State(root / 'imports.sqlite') if api else None
     scope = api.check() if api else None
@@ -175,42 +266,100 @@ async def collect(client, entity, args, root, env, api=None):
         count += len(members)
         source_group = str(entity.id) + ':' + group[0] + str(group[1])
         print(json.dumps({'source_group': source_group, 'messages': [m.id for m in members], 'action': args.command}), flush=True)
-        if not api:
-            continue
-        old = [state.get(scope, entity.id, msg.id) for msg in members]
-        if any(row and row[0] == 'uploading' for row in old):
-            raise ImportFailure('该源帖存在结果不确定的上传，请先人工核对，不自动重发')
-        if all(row and row[0] == 'done' for row in old):
-            print('源帖已导入，整组跳过', flush=True)
-            continue
-        if any(row for row in old):
-            raise ImportFailure('源帖已有部分单张导入记录，停止；不会重复发送或拆组')
-        sizes = [int(getattr(msg.file, 'size', 0) or 0) for msg in members]
-        ceiling = min(args.max_bytes, 8 * 1024**2)
-        if any(size < 1 or size > ceiling for size in sizes):
-            print('整组跳过：大小未知或超过照片组单张8MiB限额', flush=True)
-            continue
-        if shutil.disk_usage(root).free < sum(sizes) + 2 * 1024**3:
-            raise ImportFailure('剩余磁盘不足，至少保留2GiB')
-        with tempfile.TemporaryDirectory(prefix='download-', dir=root) as temp:
-            items = []
-            for msg in members:
-                path = Path(temp) / ('mzt-' + str(msg.id) + '.jpg')
-                await client.download_media(msg, file=str(path))
-                if not path.is_file() or not 0 < path.stat().st_size <= ceiling:
-                    raise ImportFailure('下载照片为空或超限，停止整组')
-                items.append({'path': path, 'filename': path.name, 'hashes': digest(path)})
-            for msg, item in zip(members, items):
-                state.save(scope, entity.id, msg.id, 'uploading', item['hashes']['sha256'])
-            # Preserve source album composition, including repeated photos in different posts.
-            results = await asyncio.to_thread(api.upload_group, items, source_group)
-            with state.db:
-                for msg, item, result in zip(members, items, results):
-                    state.db.execute('UPDATE imports SET phase=?,result=? WHERE scope=? AND channel=? AND message=?',
-                        ('done', json.dumps(result), scope, entity.id, msg.id))
-                    print(json.dumps({'imported': msg.id, 'key': result['key'], 'source_group': source_group}), flush=True)
-        await asyncio.sleep(3)
+        if api:
+            reason = skip_reason(members, min(args.max_bytes, 8 * 1024**2))
+            if reason:
+                print(json.dumps({'skipped': [msg.id for msg in members], 'reason': reason}), flush=True)
+                continue
+            await import_post(client, entity, members, root, state, scope, api, args)
     print(json.dumps({'selected': count, 'posts': len(posts), 'mode': args.command}), flush=True)
+
+
+async def history_posts(client, entity, snapshot, offset):
+    """Telethon paginates; keep an album across page boundaries, never across failures."""
+    pending = []; key = None; previous = offset or snapshot + 1
+    async for msg in client.iter_messages(entity, limit=None, offset_id=offset, max_id=snapshot + 1, wait_time=1):
+        if msg.id > snapshot or msg.id >= previous:
+            raise ImportFailure('历史分页顺序异常，停止且不推进当前组游标')
+        previous = msg.id
+        current = post_key(msg)
+        if pending and current != key:
+            yield key, sorted(pending, key=lambda member: member.id)
+            pending = []
+        key = current
+        pending.append(msg)
+        if len(pending) > 10:
+            raise ImportFailure('源媒体组超过10条，停止而不拆分')
+    if pending:
+        yield key, sorted(pending, key=lambda member: member.id)
+
+
+def history_stats():
+    return {'posts': 0, 'messages': 0, 'eligible_photos': 0, 'source_bytes': 0,
+            'imported': 0, 'reused': 0, 'download_bytes': 0, 'skipped_photos': 0, 'skip_posts': {}}
+
+
+def add_stats(stats, members, reason, outcome=None, downloaded=0):
+    stats['posts'] += 1; stats['messages'] += len(members)
+    photos = sum(bool(getattr(msg, 'photo', None)) for msg in members)
+    if reason:
+        stats['skipped_photos'] += photos
+        stats['skip_posts'][reason] = stats['skip_posts'].get(reason, 0) + 1
+    else:
+        stats['eligible_photos'] += len(members)
+        stats['source_bytes'] += sum(int(msg.file.size) for msg in members)
+        if outcome:
+            stats[outcome] += len(members)
+        stats['download_bytes'] += downloaded
+
+
+def report_history(job, mode):
+    print(json.dumps({'mode': mode, **job}, ensure_ascii=False), flush=True)
+
+
+async def history(client, entity, args, root, api=None):
+    state = State(root / 'imports.sqlite') if api else None
+    scope = api.check() if api else None
+    job = state.job(scope, entity.id) if state else None
+    ceiling = min(args.max_bytes, 8 * 1024**2)
+    if job and job['ceiling'] != ceiling:
+        raise ImportFailure('不能在同一历史任务中改变文件大小筛选条件')
+    if not job:
+        latest = [msg async for msg in client.iter_messages(entity, limit=1)]
+        snapshot = latest[0].id if latest else 0
+        job = {'snapshot': snapshot, 'offset': 0, 'completed': False, 'ceiling': ceiling,
+               'started_at': int(time.time()), 'updated_at': int(time.time()), 'stats': history_stats()}
+        if state:
+            state.checkpoint(scope, entity.id, job)
+    if job['completed']:
+        report_history(job, 'already_completed'); return
+    report_history(job, 'resuming' if job['offset'] else 'starting')
+    processed = 0; last_report = time.monotonic()
+    async for group, members in history_posts(client, entity, job['snapshot'], job['offset']):
+        if state and any((row := state.get(scope, entity.id, msg.id)) and row[0] == 'uploading' for msg in members):
+            raise ImportFailure('历史任务遇到发送结果不确定的记录，停止且不推进游标，请人工核对')
+        reason = skip_reason(members, ceiling)
+        outcome = None; downloaded = 0
+        if api and not reason:
+            outcome, downloaded = await import_post(client, entity, members, root, state, scope, api, args)
+        add_stats(job['stats'], members, reason, outcome, downloaded)
+        job['offset'] = min(msg.id for msg in members)
+        job['updated_at'] = int(time.time())
+        if state:
+            state.checkpoint(scope, entity.id, job, (members, reason) if reason else None)
+        processed += 1
+        if time.monotonic() - last_report >= 10 or processed % 100 == 0:
+            report_history(job, args.command); last_report = time.monotonic()
+        if getattr(args, 'max_posts', 0) and processed >= args.max_posts:
+            report_history(job, 'paused_at_post_limit'); return
+    job['completed'] = True; job['updated_at'] = int(time.time())
+    if state:
+        state.checkpoint(scope, entity.id, job)
+    # Payload estimates only: origin download + Bot upload + target verification.
+    # Public API routing may add a second egress/ingress pair.
+    job['estimated_network_bytes'] = {'local_api_path': 3 * job['stats']['source_bytes'],
+                                      'public_api_roundtrip': 5 * job['stats']['source_bytes']}
+    report_history(job, 'completed')
 
 
 async def run(args, root):
@@ -241,11 +390,14 @@ async def run(args, root):
             raise ImportFailure('目标不是频道')
         if getattr(entity, 'noforwards', False):
             raise ImportFailure('频道开启内容保护，停止采集')
-        if args.command == 'import':
+        if args.command in ('import', 'import-history'):
             if env.get('IMPORT_AUTHORIZED') != 'yes':
                 raise ImportFailure('确认有使用授权后，设置IMPORT_AUTHORIZED=yes')
             api = Lsky(env)
-        await collect(client, entity, args, root, env, api)
+        if args.command in ('plan', 'import-history'):
+            await history(client, entity, args, root, api)
+        else:
+            await collect(client, entity, args, root, env, api)
     finally:
         if api:
             api.client.close()
@@ -255,15 +407,30 @@ async def run(args, root):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['login', 'preview', 'import', 'status'])
+    parser.add_argument('command', choices=['login', 'preview', 'import', 'plan', 'import-history', 'status'])
     parser.add_argument('--limit', type=int, default=20)
     parser.add_argument('--scan', type=int, default=200)
     parser.add_argument('--max-bytes', type=int, default=25 * 1024**2)
+    parser.add_argument('--download-kib', type=int, default=1024, help='Source download average KiB/s (64..102400)')
+    parser.add_argument('--interval', type=float, default=30, help='Seconds between imported source posts (3..3600)')
+    parser.add_argument('--max-posts', type=int, default=0, help='Pause history after this many posts; 0=all')
     args = parser.parse_args()
+    if not (64 <= args.download_kib <= 102400 and 3 <= args.interval <= 3600 and args.max_posts >= 0):
+        parser.error('download-kib=64..102400，interval=3..3600，max-posts>=0')
     if not (1 <= args.limit <= 100 and args.limit <= args.scan <= 2000 and 1 <= args.max_bytes <= 50 * 1024**2):
         parser.error('limit=1..100，scan=limit..2000，max-bytes最多50MiB')
     root = Path(os.environ.get('STATE_DIR', '/state'))
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if args.command == 'status':
+        state = State(root / 'imports.sqlite')
+        for row in state.db.execute('SELECT channel,data FROM history_jobs'):
+            report_history({'channel': row[0], **json.loads(row[1])}, 'status')
+        for row in state.db.execute('SELECT phase,COUNT(*) FROM imports GROUP BY phase'):
+            print(json.dumps({'phase': row[0], 'photos': row[1]}))
+        for row in state.db.execute('SELECT reason,COUNT(*) FROM history_skips GROUP BY reason'):
+            print(json.dumps({'skip_reason': row[0], 'messages': row[1]}))
+        state.db.close()
+        return
     with (root / '.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -273,12 +440,7 @@ def main():
         for stale in root.glob('download-*'):
             if stale.is_dir() and not stale.is_symlink():
                 shutil.rmtree(stale)
-        if args.command == 'status':
-            state = State(root / 'imports.sqlite')
-            for row in state.db.execute('SELECT channel,message,phase FROM imports ORDER BY rowid DESC LIMIT 100'):
-                print(json.dumps(dict(zip(['channel', 'message', 'phase'], row))))
-        else:
-            asyncio.run(run(args, root))
+        asyncio.run(run(args, root))
 
 
 if __name__ == '__main__':
@@ -288,5 +450,8 @@ if __name__ == '__main__':
         sys.exit(130)
     except Exception as exc:
         # Telegram/HTTP exception messages can include account data or URLs. Do not dump traces.
+        if type(exc).__name__ == 'FloodWaitError':
+            print('Telegram限流：需等待' + str(getattr(exc, 'seconds', '未知')) + '秒；游标已保留，等待后用原命令继续', file=sys.stderr)
+            sys.exit(1)
         print(str(exc) if isinstance(exc, ImportFailure) else '任务停止：' + type(exc).__name__ + '；请检查配置/网络，状态保留，不自动重复提交', file=sys.stderr)
         sys.exit(1)

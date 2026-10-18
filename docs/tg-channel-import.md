@@ -11,7 +11,7 @@
 - 仅采集TG照片。混有视频、文档或受保护消息的原帖整组跳过，不悄悄丢掉成员；不跟随外链。照片默认单张最多8MiB，最多10张/组，组请求最多约80MiB；超过TG照片尺寸限制时停止，不降级为单张文档。
 - 相同源帖重复导入会跳过或使用服务端幂等结果；不同原帖即使图片内容相同也保留各自组的成员，不以跨帖内容去重破坏组合。普通图床上传的去重逻辑不变。
 - 已经按旧版单张导入的记录不自动重发、改名或删频道消息。源帖只有部分成员已导入时停止供人工核对；不会补成残缺照片组。
-- 无实时同步、全历史翻页、编辑/删帖跟随或公开图库页面。此次只做近期照片组试导入。
+- 支持近期试导入，以及固定快照的全历史分页、逐帖断点续传。无实时同步、编辑/删帖跟随或公开图库页面。
 
 ## 1. 图床准备
 
@@ -88,7 +88,7 @@ docker compose -p tg-import \
   run --rm collector import --limit 20 --scan 200
 ```
 
-一次处理一个源帖，成功后间隔3秒；下载暂存后整组提交。服务端复用既有ImageService执行权限、格式与容量检查；本次组使用独立随机存储目录，不覆盖历史文件或旧组映射。数据库记录在TG回包及实际照片读取验证后提交。
+一次处理一个源帖，默认成功后间隔30秒，可用--interval调整（至少3秒）；下载暂存后整组提交。服务端复用既有ImageService执行权限、格式与容量检查；本次组使用独立随机存储目录，不覆盖历史文件或旧组映射。数据库记录在TG回包及实际照片读取验证后提交。
 
 抽查：TG频道照片拼图/顺序、“频道图片”相册归属、每张URL实际打开、图床大小/尺寸与TG下载一致；其他普通上传仍进原默认相册。TG预览照片可能调整原字节，不要用源文件哈希断言TG照片完全相同。
 
@@ -120,3 +120,84 @@ docker compose -p tg-import \
 保留私有import.env、登录会话和状态，已登录账号无需重新登录。工具使用现有Token，明确相册设置后再重新预览。
 
 本地：`python3 test/tg-channel-import.test.py`，`php test/php/telegram-photo-import.php`，以及原TG/分片/R2回归。CI分别构建独立采集镜像和Lsky镜像，覆盖整组顺序、不拆帖、照片实际字节、相册归属、失败回滚和丢回包不重发。替身测试不能替代SJC真实账号的照片组导入验收。
+
+
+## 7. 全频道历史统计与搬运
+
+先更新采集器。已通过照片组验收的图床镜像`sha-8d500dffae05836bd595b40422ded6d04595c1ba`支持本节接口；此次历史功能只需更新采集器，不必再次替换图床容器。仅搬运你有权使用的频道照片。
+
+```bash
+git -C /opt/tg-import/source pull --ff-only origin test/tg-channel-import
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml build
+```
+
+### 7.1 先只读统计真实数量
+
+```bash
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run --rm collector plan
+```
+
+`plan`仅分页读取消息元数据，不下载照片、不调用图床，不创建历史导入任务。末行`mode=completed`才是完整统计；运行中每100帖或约10秒输出一次进度（以读到下一帖为输出时机）。
+
+- `snapshot`：本次统计时最新消息ID。之后新增消息不计入本次统计。
+- `stats.eligible_photos`：按消息类型、保护标志与大小筛选的候选数，实际JPEG格式、尺寸和角色权限仍在上传时检查；`source_bytes`是这些源照片的字节总和，不是已消耗流量。
+- `skipped_photos`：受保护、混合媒体或超限原帖中跳过的照片数；`skip_posts`按原因统计整帖数量。文字、服务消息也会作为非照片帖扫描，不算可搬图片。
+- `estimated_network_bytes.local_api_path`：源照片总大小约3倍（源下载、Bot上传、实际照片校验）。`public_api_roundtrip`约5倍，额外计算采集器通过公网图床入口上传带来的出入站。TLS、请求开销、照片处理后的字节变化及重试均未计入，不能作为账单读数。以VPS供应商实际计费方式核对，另留余量。
+
+### 7.2 小批试跑并验证续传
+
+```bash
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run --rm collector import-history --max-posts 20 --download-kib 1024 --interval 30
+```
+
+从最新往最老搬运，不把全部消息载入内存。Telethon自动翻页，原帖照片组跨页时继续收齐后整组处理，只有正常读到历史末尾才提交最后一组。第一次启动固定最新消息ID；后来新增的帖子不加入该任务，避免全量搬运一直追赶变化的频道。
+
+`--max-posts 20`在本次处理20个原帖后暂停，包括已完成跳过和非照片帖子；不会拆组。以前最近20张的已成功记录会复用，不重新下载或重发。结果不确定、旧版仅导入半组的记录会停止任务，不能删库强行重试。
+
+### 7.3 后台继续全量搬运
+
+确认试跑正常，再去掉单次帖数限制。首次创建后台任务：
+
+```bash
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run -d --name tg-import-history collector import-history --download-kib 1024 --interval 30
+
+docker logs --tail 30 -f tg-import-history
+```
+
+退出日志跟踪用Ctrl+C，不会停止后台容器。`--download-kib 1024`限制源照片下载的平均速度约1MiB/s，允许一个TG下载块的短时突发；不是整台VPS的带宽限制，也不限制图床→Bot API内部发送的瞬时速度。`--interval 30`每个新导入原帖成功后等待30秒，降低持续请求频率，不能保证绝不触发TG限流。按实际平均每帖张数估时，例如每帖5张、2万张约4000帖，单等待约33小时，另加传输与校验时间。
+
+容器不自动重启。正常完成后退出；断电、网络错误、磁盘不足或结果不确定也会退出，需先看日志。Telegram短限流最多60秒由客户端等待；更长限流打印要求等待的秒数并退出，等待后再继续。不会自动重试可能已经成功的上传POST。
+
+同名容器已经存在时，不要重复执行上面的创建命令：
+
+```bash
+docker logs --tail 50 tg-import-history
+docker inspect tg-import-history --format '状态={{.State.Status}} 退出码={{.State.ExitCode}}'
+# 确认已停止、没有不确定上传且故障已排除后，使用原容器和原参数继续：
+docker start tg-import-history
+```
+
+不需要重登TG或重新生成Token。数据库里已完成的历史任务再次启动会显示`already_completed`，不会把新消息偷偷并入旧快照；后续新帖可用近期导入命令处理。任务不支持自动跟随频道编辑、删除或后来补发的原帖成员。
+
+### 7.4 进度、检查点与停止
+
+搬运期间可另开终端只读查看状态，不抢占采集锁、不清理正在下载的文件：
+
+```bash
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
+  run --rm collector status
+```
+
+`offset`是已处理完整原帖的最小消息ID（下次只取更老消息）；`imported`为本历史任务确认的新图数量，`reused`为已有成功记录，`download_bytes`仅统计已确认成功新帖的源下载量，失败时已用掉的流量不会计入。完成标记表示整个快照扫描完成，仍需检查跳过原因；不表示频道所有类型都已搬运。
+
+游标、累计统计与跳过原因写入原`/opt/tg-import/state/imports.sqlite`，每个整帖确认后落盘。如果成功记录已写入而游标写入中断，下次复用该帖记录再推进，不重复发送；发送结果不确定则停在原游标，人工核对后处理。未完成照片组不会因为分页或网络异常被当成完成。
+
+主动强制停止可用`docker stop -t 120 tg-import-history`，但发送中的中断可能留下`uploading`不确定状态，需人工核对；优先让`--max-posts`的小批任务在整帖边界自然暂停。不要删除会话、状态库或Bot API的TDLib数据，也不要改动任务对应的TG策略/相册。最低磁盘保留2GiB；服务端TG缓存沿用原清理器（例如SJC的15GiB压力上限），此工具不删除其缓存。
