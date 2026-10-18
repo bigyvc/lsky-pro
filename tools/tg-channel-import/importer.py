@@ -177,7 +177,7 @@ async def collect(client, entity, args, root, env, api=None):
                     if previous:
                         result = json.loads(previous[0])
                     else:
-                        filename = 'tg_' + str(entity.id) + '_' + str(msg.id) + ext
+                        filename = 'mzt-' + str(msg.id) + ext
                         state.save(scope, entity.id, msg.id, 'uploading', hashes['sha256'])
                         # Do not retry POST automatically: a lost response may hide a successful upload.
                         result = await asyncio.to_thread(api.upload, path, filename, hashes)

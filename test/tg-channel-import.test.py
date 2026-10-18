@@ -29,10 +29,11 @@ class FakeTelegram:
 
 
 class FakeApi:
-    def __init__(self, fail=False): self.uploads = 0; self.fail = fail
+    def __init__(self, fail=False): self.uploads = 0; self.fail = fail; self.filenames = []
     def check(self): return 'scope'
     def upload(self, path, filename, hashes):
         self.uploads += 1
+        self.filenames.append(filename)
         if self.fail: raise m.ImportFailure('response lost')
         return {'key': 'ABC123', 'url': 'https://example.test/ABC123/a.jpg'}
 
@@ -74,6 +75,7 @@ class Tests(unittest.TestCase):
                 asyncio.run(m.collect(client, NS(id=1), args, Path(tmp), {}, api))
             finally: m.asyncio.sleep = old_sleep
             self.assertEqual(api.uploads, 1)
+            self.assertEqual(api.filenames, ['mzt-1.jpg'])
             self.assertEqual(client.downloads, 2)
             self.assertFalse(list(Path(tmp).glob('download-*')))
             self.assertEqual(m.State(Path(tmp)/'imports.sqlite').get('scope', 1, 2)[0], 'done')
