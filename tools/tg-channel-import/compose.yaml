@@ -1,0 +1,16 @@
+services:
+  collector:
+    build: .
+    image: lsky-channel-import:local
+    env_file: /opt/tg-import/import.env
+    volumes:
+      - /opt/tg-import/state:/state
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+    restart: "no"
