@@ -91,4 +91,6 @@ check($import->store(req('123:g1'),$images)===$fresh && $adapter->sends===$attem
 $iterator=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
 foreach($iterator as $item){if($item->isDir()&&!$item->isLink())rmdir($item->getPathname());else unlink($item->getPathname());}
 rmdir($work);
+check(App\Models\GalleryPost::count()===2,'completed imports automatically create one gallery post per source group');
+check(App\Models\GalleryPost::where('source_group','123:g1')->firstOrFail()->images()->count()===2,'reimport refreshes gallery membership without duplicating the source post');
 echo "PASS photo group import complete\n";

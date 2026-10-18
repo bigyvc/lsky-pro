@@ -325,6 +325,8 @@ src/public/favicon.ico
 src/routes/image.php
 # Authenticated Telegram photo-group import endpoint.
 src/routes/api.php
+# Independent gallery domain isolation, default off until explicit album publication.
+src/app/Http/Kernel.php
 EOF
 )
 # 去掉注释/空行/行尾空白，得到排序后的文件清单

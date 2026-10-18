@@ -128,6 +128,7 @@ class TelegramPhotoImport
                 }
                 $user=$request->user();
                 if ($user->images()->sum('size')>$user->capacity) throw new UploadException('TG照片处理后的总容量超出账号额度');
+                app(GalleryPosts::class)->record($request->input('source_group'),$images);
                 return ['media_group_id'=>$groupId,'images'=>$outputs];
             });
             $committed=true;$meta['phase']='done';$meta['result']=$result;$this->write($path,$meta);
