@@ -17,6 +17,6 @@ class UserController extends Controller
         $user->setVisible([
             'name', 'avatar', 'email', 'capacity', 'used_capacity', 'url', 'image_num', 'album_num', 'registered_ip'
         ]);
-        return $this->success('success', array_merge($user->toArray(), ['upload_album_id_supported'=>true]));
+        return $this->success('success', array_merge($user->toArray(), ['upload_album_id_supported'=>true, 'telegram_photo_groups_supported'=>true]));
     }
 }

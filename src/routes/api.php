@@ -30,6 +30,7 @@ Route::group([
     Route::group([
         'middleware' => 'auth:sanctum',
     ], function () {
+        Route::post('upload/telegram-photos', [\App\Http\Controllers\Api\V1\TelegramPhotoController::class, 'store']);
         Route::get('images', [ImageController::class, 'images']);
         Route::delete('images/{key}', [ImageController::class, 'destroy']);
         Route::get('albums', [AlbumController::class, 'index']);

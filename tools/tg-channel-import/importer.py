@@ -1,10 +1,10 @@
 """Optional user-session collector. Never touches the Lsky database or Bot API directly."""
 import argparse
+from contextlib import ExitStack
 import asyncio
 import fcntl
 import hashlib
 import json
-import mimetypes
 import os
 from pathlib import Path
 import shutil
@@ -80,6 +80,8 @@ class Lsky:
             raise ImportFailure('无法确认导入账号身份')
         if profile.get('upload_album_id_supported') is not True:
             raise ImportFailure('请先更新图床到支持指定相册的版本，已停止且未上传文件')
+        if profile.get('telegram_photo_groups_supported') is not True:
+            raise ImportFailure('图床尚不支持照片组，请先更新，未上传文件')
         self.album_id = self.resolve_album()
         # The stock public strategies endpoint is guest-scoped; do not treat it as
         # authoritative for a Bearer user's strategy access. Upload enforces the role.
@@ -102,18 +104,22 @@ class Lsky:
             raise ImportFailure('未找到唯一的目标相册；确认名称，重名时额外设置LSKY_ALBUM_ID')
         return matches[0]
 
-    def upload(self, path, filename, hashes):
-        with path.open('rb') as f:
-            data = api_data(self.client.post(self.origin + '/api/v1/upload',
-                data={'strategy_id': str(self.strategy), 'album_id': str(self.album_id)},
-                files={'file': (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')}))
-        if not isinstance(data, dict) or not data.get('key') or not data.get('links', {}).get('url'):
-            raise ImportFailure('上传回包缺少文件记录')
-        if data.get('album_id') != self.album_id:
-            raise ImportFailure('上传回包相册不符，请核对记录，不自动重试')
-        if data.get('md5') != hashes['md5'] or data.get('sha1') != hashes['sha1']:
-            raise ImportFailure('图床内容哈希不符，请关闭导入角色图片转换、水印和重编码')
-        return {'key': data['key'], 'url': data['links']['url']}
+    def upload_group(self, items, source_group):
+        with ExitStack() as stack:
+            files = [('files[]', (item['filename'], stack.enter_context(item['path'].open('rb')), 'image/jpeg')) for item in items]
+            data = api_data(self.client.post(self.origin + '/api/v1/upload/telegram-photos',
+                data={'strategy_id': str(self.strategy), 'album_id': str(self.album_id), 'source_group': source_group}, files=files))
+        rows = data.get('images') if isinstance(data, dict) else None
+        if not isinstance(rows, list) or len(rows) != len(items):
+            raise ImportFailure('照片组回包数量异常，不自动重试')
+        results = []
+        for item, row in zip(items, rows):
+            original = row.get('source', {})
+            if (row.get('album_id') != self.album_id or not row.get('key') or not row.get('links', {}).get('url')
+                or original.get('md5') != item['hashes']['md5'] or original.get('sha1') != item['hashes']['sha1']):
+                raise ImportFailure('照片组来源哈希或实际相册不符，不自动重试')
+            results.append({'key': row['key'], 'url': row['links']['url']})
+        return results
 
 
 class State:
@@ -128,65 +134,83 @@ class State:
         return self.db.execute('SELECT phase,result FROM imports WHERE scope=? AND channel=? AND message=?',
                                (scope, channel, message)).fetchone()
 
-    def duplicate(self, scope, sha):
-        return self.db.execute("SELECT result FROM imports WHERE scope=? AND sha256=? AND phase='done' LIMIT 1", (scope, sha)).fetchone()
-
     def save(self, scope, channel, message, phase, sha, result=None):
         self.db.execute('INSERT OR REPLACE INTO imports VALUES (?,?,?,?,?,?)',
                         (scope, channel, message, phase, sha, json.dumps(result) if result else None))
         self.db.commit()
 
 
-def extension(msg):
-    if getattr(msg, 'photo', None):
-        return '.jpg'
-    f = getattr(msg, 'file', None)
-    ext = (getattr(f, 'ext', '') or '').lower()
-    return ext if getattr(msg, 'document', None) and ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif') else None
+def select_posts(messages, limit, scan):
+    # Telegram albums are consecutive messages. Never split one at the selection boundary.
+    groups = {}
+    for msg in messages:
+        gid = getattr(msg, 'grouped_id', None)
+        key = ('g', gid) if gid is not None else ('s', msg.id)
+        groups.setdefault(key, []).append(msg)
+    boundary = getattr(messages[-1], 'grouped_id', None) if len(messages) == scan and messages else None
+    selected = []; count = 0
+    for key, members in groups.items():
+        if key[0] == 'g' and key[1] == boundary:
+            continue  # The scan window may have cut this source album.
+        if not all(getattr(m, 'photo', None) and not getattr(m, 'noforwards', False) for m in members):
+            continue  # Do not silently drop videos/documents from mixed source albums.
+        if len(members) > 10:
+            raise ImportFailure('源照片组超过10张，停止而不拆分')
+        if count + len(members) > limit:
+            break
+        selected.append((key, sorted(members, key=lambda m: m.id)))
+        count += len(members)
+        if count == limit:
+            break
+    return selected
 
 
 async def collect(client, entity, args, root, env, api=None):
     state = State(root / 'imports.sqlite') if api else None
     scope = api.check() if api else None
+    messages = [msg async for msg in client.iter_messages(entity, limit=args.scan)]
+    posts = select_posts(messages, args.limit, args.scan)
     count = 0
-    async for msg in client.iter_messages(entity, limit=args.scan):
-        ext = extension(msg)
-        if not ext or getattr(msg, 'noforwards', False):
+    for group, members in posts:
+        count += len(members)
+        source_group = str(entity.id) + ':' + group[0] + str(group[1])
+        print(json.dumps({'source_group': source_group, 'messages': [m.id for m in members], 'action': args.command}), flush=True)
+        if not api:
             continue
-        count += 1
-        size = int(getattr(msg.file, 'size', 0) or 0)
-        print(json.dumps({'message': msg.id, 'bytes': size, 'action': args.command}), flush=True)
-        if api:
-            old = state.get(scope, entity.id, msg.id)
-            if old and old[0] == 'uploading':
-                raise ImportFailure('存在结果不确定的上传，请先在图床核对，勿自动重复提交：消息' + str(msg.id))
-            if old and old[0] == 'done':
-                print('已导入，跳过', flush=True)
-            elif size < 1 or size > args.max_bytes:
-                print('跳过：大小未知或超过单文件限额', flush=True)
-            else:
-                if shutil.disk_usage(root).free < size + 2 * 1024**3:
-                    raise ImportFailure('剩余磁盘不足，至少保留2GiB')
-                with tempfile.TemporaryDirectory(prefix='download-', dir=root) as temp:
-                    path = Path(temp) / ('image' + ext)
-                    await client.download_media(msg, file=str(path))
-                    if not path.is_file() or path.stat().st_size < 1 or path.stat().st_size > args.max_bytes:
-                        raise ImportFailure('下载文件为空或超过单文件限额')
-                    hashes = digest(path)
-                    previous = state.duplicate(scope, hashes['sha256'])
-                    if previous:
-                        result = json.loads(previous[0])
-                    else:
-                        filename = 'mzt-' + str(msg.id) + ext
-                        state.save(scope, entity.id, msg.id, 'uploading', hashes['sha256'])
-                        # Do not retry POST automatically: a lost response may hide a successful upload.
-                        result = await asyncio.to_thread(api.upload, path, filename, hashes)
-                    state.save(scope, entity.id, msg.id, 'done', hashes['sha256'], result)
-                    print(json.dumps({'imported': msg.id, 'key': result['key']}, ensure_ascii=False), flush=True)
-                await asyncio.sleep(3)
-        if count >= args.limit:
-            break
-    print(json.dumps({'selected': count, 'mode': args.command}), flush=True)
+        old = [state.get(scope, entity.id, msg.id) for msg in members]
+        if any(row and row[0] == 'uploading' for row in old):
+            raise ImportFailure('该源帖存在结果不确定的上传，请先人工核对，不自动重发')
+        if all(row and row[0] == 'done' for row in old):
+            print('源帖已导入，整组跳过', flush=True)
+            continue
+        if any(row for row in old):
+            raise ImportFailure('源帖已有部分单张导入记录，停止；不会重复发送或拆组')
+        sizes = [int(getattr(msg.file, 'size', 0) or 0) for msg in members]
+        ceiling = min(args.max_bytes, 8 * 1024**2)
+        if any(size < 1 or size > ceiling for size in sizes):
+            print('整组跳过：大小未知或超过照片组单张8MiB限额', flush=True)
+            continue
+        if shutil.disk_usage(root).free < sum(sizes) + 2 * 1024**3:
+            raise ImportFailure('剩余磁盘不足，至少保留2GiB')
+        with tempfile.TemporaryDirectory(prefix='download-', dir=root) as temp:
+            items = []
+            for msg in members:
+                path = Path(temp) / ('mzt-' + str(msg.id) + '.jpg')
+                await client.download_media(msg, file=str(path))
+                if not path.is_file() or not 0 < path.stat().st_size <= ceiling:
+                    raise ImportFailure('下载照片为空或超限，停止整组')
+                items.append({'path': path, 'filename': path.name, 'hashes': digest(path)})
+            for msg, item in zip(members, items):
+                state.save(scope, entity.id, msg.id, 'uploading', item['hashes']['sha256'])
+            # Preserve source album composition, including repeated photos in different posts.
+            results = await asyncio.to_thread(api.upload_group, items, source_group)
+            with state.db:
+                for msg, item, result in zip(members, items, results):
+                    state.db.execute('UPDATE imports SET phase=?,result=? WHERE scope=? AND channel=? AND message=?',
+                        ('done', json.dumps(result), scope, entity.id, msg.id))
+                    print(json.dumps({'imported': msg.id, 'key': result['key'], 'source_group': source_group}), flush=True)
+        await asyncio.sleep(3)
+    print(json.dumps({'selected': count, 'posts': len(posts), 'mode': args.command}), flush=True)
 
 
 async def run(args, root):

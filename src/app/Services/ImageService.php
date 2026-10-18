@@ -73,10 +73,12 @@ class ImageService
 {
     /**
      * @param  Request  $request
+     * @param  callable|null $persist Internal deferred writer for transactional photo groups; never request input.
+     * @param  string|null $namespace Internal unique photo-group storage directory.
      * @return Image
      * @throws UploadException
      */
-    public function store(Request $request): Image
+    public function store(Request $request, ?callable $persist = null, ?string $namespace = null): Image
     {
         $file = $request->file('file');
 
@@ -233,6 +235,8 @@ class ImageService
         );
         $pathname = (new \League\Flysystem\WhitespacePathNormalizer())->normalizePath($filename.".{$extension}");
 
+        if ($namespace !== null) $pathname = $namespace.'/'.basename($pathname);
+
         [$width, $height] = $media ?: (@getimagesize($file->getRealPath()) ?: [400, 400]);
 
         $image->fill([
@@ -254,7 +258,7 @@ class ImageService
 
         // 检测该策略是否存在该图片，有则只创建记录不保存文件
         /** @var Image $existing */
-        $existing = Image::query()->when($image->strategy_id, function (Builder $builder, $id) {
+        $existing = $namespace !== null ? null : Image::query()->when($image->strategy_id, function (Builder $builder, $id) {
             $builder->where('strategy_id', $id);
         })->where('md5', $image->md5)->where('sha1', $image->sha1)->first();
         // A database record alone cannot prove a TG object still has a usable mapping.
@@ -277,7 +281,8 @@ class ImageService
             try {
                 $handle = fopen($file->getRealPath(), 'rb');
                 if (!$handle) throw new UploadException('无法读取待上传文件');
-                $filesystem->writeStream($pathname, $handle);
+                if ($persist) $persist($pathname, $handle, $image);
+                else $filesystem->writeStream($pathname, $handle);
             } catch (FilesystemException $e) {
                 Utils::e($e, '保存图片时出现异常');
                 throw new UploadException(config('app.debug', false) ? $e->getMessage() : '图片上传失败');
@@ -335,7 +340,7 @@ class ImageService
             }
         }
 
-        if ($safeToProcess) $this->makeThumbnail($image, $file);
+        if ($safeToProcess && !$persist) $this->makeThumbnail($image, $file);
 
         // 上传完成后删除临时文件
         unlink($file->getPathname());

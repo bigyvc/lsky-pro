@@ -31,11 +31,11 @@ class FakeTelegram:
 class FakeApi:
     def __init__(self, fail=False): self.uploads = 0; self.fail = fail; self.filenames = []
     def check(self): return 'scope'
-    def upload(self, path, filename, hashes):
+    def upload_group(self, items, source_group):
         self.uploads += 1
-        self.filenames.append(filename)
+        self.filenames.extend(item['filename'] for item in items)
         if self.fail: raise m.ImportFailure('response lost')
-        return {'key': 'ABC123', 'url': 'https://example.test/ABC123/a.jpg'}
+        return [{'key': 'ABC'+str(i), 'url': 'https://example.test/a.jpg'} for i in range(len(items))]
 
 
 class Tests(unittest.TestCase):
@@ -51,10 +51,10 @@ class Tests(unittest.TestCase):
             with self.assertRaises(m.ImportFailure): m.api_data(Response(body))
         self.assertEqual(m.api_data(Response({'status': True, 'data': {'key': 'x'}})), {'key': 'x'})
 
-    def test_no_video_svg_or_arbitrary_document(self):
-        for ext in ['.svg', '.mp4', '.zip']:
-            self.assertIsNone(m.extension(NS(photo=None, document=True, file=NS(ext=ext))))
-        self.assertEqual(m.extension(NS(photo=None, document=True, file=NS(ext='.PNG'))), '.png')
+    def test_only_photos_are_selected(self):
+        for ext in ['.svg','.mp4','.zip','.png']:
+            msg=NS(id=1,photo=None,document=True,file=NS(ext=ext))
+            self.assertEqual(m.select_posts([msg],20,200),[])
 
     def test_preview_no_download_or_database(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -63,7 +63,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(client.downloads, 0)
             self.assertFalse(list(Path(tmp).iterdir()))
 
-    def test_hash_dedupe_and_resume(self):
+    def test_preserve_distinct_posts_and_resume(self):
         with tempfile.TemporaryDirectory() as tmp:
             client = FakeTelegram(); api = FakeApi()
             args = NS(command='import', limit=2, scan=20, max_bytes=25*1024**2)
@@ -74,8 +74,8 @@ class Tests(unittest.TestCase):
                 asyncio.run(m.collect(client, NS(id=1), args, Path(tmp), {}, api))
                 asyncio.run(m.collect(client, NS(id=1), args, Path(tmp), {}, api))
             finally: m.asyncio.sleep = old_sleep
-            self.assertEqual(api.uploads, 1)
-            self.assertEqual(api.filenames, ['mzt-1.jpg'])
+            self.assertEqual(api.uploads, 2)
+            self.assertEqual(api.filenames, ['mzt-1.jpg', 'mzt-2.jpg'])
             self.assertEqual(client.downloads, 2)
             self.assertFalse(list(Path(tmp).glob('download-*')))
             self.assertEqual(m.State(Path(tmp)/'imports.sqlite').get('scope', 1, 2)[0], 'done')
@@ -108,6 +108,29 @@ class Tests(unittest.TestCase):
         api.album_id=9
         with self.assertRaises(m.ImportFailure):api.resolve_album()
 
+    def test_source_groups_keep_order_and_never_split_at_limit(self):
+        def photo(n, group=None):return NS(id=n,grouped_id=group,photo=True)
+        posts=m.select_posts([photo(9,1),photo(8,1),photo(7,2),photo(6,2),photo(5,2)],4,200)
+        self.assertEqual([[x.id for x in members] for _,members in posts],[[8,9]])
+        self.assertEqual(m.select_posts([photo(9,1),photo(8,1)],20,2),[])
+        posts=m.select_posts([photo(9,1),photo(8,1),NS(id=7,grouped_id=2,photo=False)],20,200)
+        self.assertEqual(len(posts),1)
+
+    def test_group_reply_requires_source_hashes_and_album(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'mzt-1.jpg';path.write_bytes(b'abc');hashes=m.digest(path)
+            api=m.Lsky.__new__(m.Lsky);api.origin='https://example.test';api.strategy=2;api.album_id=7
+            class Client:
+                wrong=False
+                def post(self,*a,**kw):
+                    assert kw['data']['source_group']=='1:g123'
+                    assert kw['files'][0][0]=='files[]'
+                    return Response({'status':True,'data':{'images':[{'key':'K','album_id':8 if self.wrong else 7,'links':{'url':'https://example.test/K'},'source':hashes,'md5':'TG-processed'}]}})
+            api.client=Client();items=[{'path':path,'filename':path.name,'hashes':hashes}]
+            self.assertEqual(api.upload_group(items,'1:g123')[0]['key'],'K')
+            api.client.wrong=True
+            with self.assertRaises(m.ImportFailure):api.upload_group(items,'1:g123')
+
     def test_old_server_rejected_before_any_upload(self):
         api=m.Lsky.__new__(m.Lsky);api.origin='https://example.test'
         class Client:
@@ -115,15 +138,6 @@ class Tests(unittest.TestCase):
         api.client=Client()
         with self.assertRaises(m.ImportFailure):api.check()
 
-    def test_upload_checks_actual_hashes(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp)/'a.jpg';path.write_bytes(b'abc')
-            api = m.Lsky.__new__(m.Lsky);api.origin = 'https://example.test';api.strategy = 2;api.album_id = 7
-            class Client:
-                def post(self, *a, **kw):
-                    return Response({'status': True, 'data': {'key':'x','album_id':7,'links':{'url':'https://example.test/x'},'md5':'wrong','sha1':'wrong'}})
-            api.client = Client()
-            with self.assertRaises(m.ImportFailure): api.upload(path, 'a.jpg', m.digest(path))
 
 
 if __name__ == '__main__': unittest.main()

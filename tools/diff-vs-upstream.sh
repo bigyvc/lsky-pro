@@ -323,6 +323,8 @@ src/app/Http/Requests/Admin/StrategyRequest.php
 src/public/favicon.ico
 # Experimental video output routes.
 src/routes/image.php
+# Authenticated Telegram photo-group import endpoint.
+src/routes/api.php
 EOF
 )
 # 去掉注释/空行/行尾空白，得到排序后的文件清单

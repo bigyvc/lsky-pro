@@ -143,6 +143,30 @@ class TelegramAdapter implements FilesystemAdapter
         }
     }
 
+    /** JPEG photo albums, kept separate from byte-preserving document uploads. */
+    public function sendPhotoBatch(array $files): array
+    {
+        if (count($files) < 1 || count($files) > 10) throw new RuntimeException('照片组需要1至10张照片');
+        $media=[]; $parts=[['name'=>'chat_id','contents'=>$this->chatId], ['name'=>'disable_notification','contents'=>'true']];
+        foreach (array_values($files) as $i=>$item) {
+            $parts[]=['name'=>'p'.$i,'contents'=>$item['stream'],'filename'=>$item['filename']];
+            $media[]=['type'=>'photo','media'=>'attach://p'.$i];
+        }
+        if (count($files) === 1) {
+            $parts[2]['name']='photo';
+            return [$this->callApi('sendPhoto',['multipart'=>$parts])];
+        }
+        $parts[]=['name'=>'media','contents'=>json_encode($media, JSON_THROW_ON_ERROR)];
+        return $this->callApi('sendMediaGroup',['multipart'=>$parts]);
+    }
+
+    public function discardPhotoMessages(array $ids): void
+    {
+        foreach (array_unique($ids) as $id) if (is_int($id) && $id > 0) {
+            $this->deleteRemoteMessage($id, 'photo-import', true);
+        }
+    }
+
     public function read(string $path): string
     {
         $stream = $this->readStream($path);

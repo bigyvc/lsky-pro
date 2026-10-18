@@ -1,33 +1,29 @@
-# 可选：频道图片导入（首轮20张）
+# 可选：Telegram频道照片组导入
 
-这是独立的试验工具，位于`test/tg-channel-import`分支；不修改Lsky应用、Bot API或生产Compose，不提供新图库网站，也不启动常驻同步。
+试验分支`test/tg-channel-import`。采集器是独立Docker服务；图床需要同一分支的照片组接口版本。不会自动改动VPS或master。
 
-流程：Telegram用户会话读取频道 → 逐张下载 → Lsky上传API → 专用TG策略 → 图床记录。它不直接写Lsky数据库，不复用用户会话的file_id。图片网站展示可在确认导入可靠后另做。
+## 当前行为
 
-## 能力与边界
+- 按源帖grouped_id组织照片，组内按消息ID升序，1张调用sendPhoto，2至10张调用sendMediaGroup，目标频道显示照片拼图；不是把几张图合成一张。
+- 每张在图床中有独立记录、独立URL，明确进入当前账号的“频道图片”相册；文件标签是`mzt-22569.jpg`。TG照片预览通常不显示文件名。
+- 当前路径为下载源频道照片，再整组上传为TG照片。**不保证TG保存的JPEG与源下载字节完全相同**；不会把“照片组”描述成原件无损。服务端读取TG实际保存的最大照片，确认JPEG/长度，再更新大小、尺寸、MD5和SHA1。回包同时保留来源哈希，采集器校验来源顺序及相册。
+- 默认最近200条消息中选最多20张；不会为凑满数量拆开一个原帖。如果最后一组放不下则停止，实际可能少于20张。扫描窗口截断的最老一组保守跳过。
+- 仅采集TG照片。混有视频、文档或受保护消息的原帖整组跳过，不悄悄丢掉成员；不跟随外链。照片默认单张最多8MiB，最多10张/组，组请求最多约80MiB；超过TG照片尺寸限制时停止，不降级为单张文档。
+- 相同源帖重复导入会跳过或使用服务端幂等结果；不同原帖即使图片内容相同也保留各自组的成员，不以跨帖内容去重破坏组合。普通图床上传的去重逻辑不变。
+- 已经按旧版单张导入的记录不自动重发、改名或删频道消息。源帖只有部分成员已导入时停止供人工核对；不会补成残缺照片组。
+- 无实时同步、全历史翻页、编辑/删帖跟随或公开图库页面。此次只做近期照片组试导入。
 
-- `login`只登录用户账号；`preview`只列出消息ID/文件大小，不下载图片、不请求Lsky。
-- 默认扫描最近200条消息，选择最近20张图片。照片每条消息计一张，媒体组会有多条记录；不采集视频、SVG、任意文档、外链或频道文案。
-- 支持Telegram照片，以及JPG/JPEG/PNG/WebP/GIF文档；默认每张最多25MiB，参数最多50MiB。
-- 仅用户名形式的频道，不自动加入频道，不支持邀请链接；账号须能访问。频道开启内容保护时停止。可公开查看不代表允许转载，请确认采集与公开展示授权。
-- 串行导入，成功后间隔3秒；最多导入100个候选/次。默认近期20张模式不是全量历史遍历，也不是实时同步；重复运行仍检查同一近期窗口，不会自动往更旧消息翻页。
-- 持久化来源消息记录、内容SHA256及图床返回key/URL；同一目标范围的重复内容复用已记录结果。图床端也有独立内容去重。
-- HTTP上传不自动重试。回包丢失、业务失败、哈希不一致或进程在提交后退出，会保留`uploading`状态并阻止自动重传。先核对专用账号“我的图片”及生成文件名，再处理状态，不能删除状态库后盲目全量重跑。
-- 登录会话和导入状态存于宿主`/opt/tg-import/state`；不进入现有GitHub备份。会话相当于账号登录凭据，单独私密备份，不能提交到仓库或发送聊天。
-- 单文件临时下载完成/异常后清理；强制中断留下的`download-*`目录在下一次获得独占锁后清理。至少保留2GiB可用空间，不操作Lsky/TG API缓存。
+## 1. 图床准备
 
-## 1. 准备图床
+可使用管理员或专用用户。站点启用API；当前角色绑定实际Telegram策略并允许JPG/JPEG。质量100、不转换格式、关闭水印和图片审查，服务端仍执行角色大小、用户容量和相册归属校验。
 
-1. 新建专用普通用户和角色，启用站点API；验证邮箱（若站点要求）。
-2. 专用角色绑定你选择的Telegram策略；若需独立图库频道，先新建私有频道并配置对应TG策略。Bot必须能向该频道发送文件。
-3. 图片允许类型按需启用；限额至少25MiB。质量100、不转换格式、关闭水印和图片审查，以便保留原字节及核对哈希。不要修改普通游客角色。
-4. 用该用户生成API Token。只将原始Token写入私有env，不加`Bearer `前缀。
-5. 在导入账号后台创建“频道图片”相册，不必设为默认。工具按名称解析属于当前Token账号的相册ID并通过album_id上传；同名相册不唯一时必须额外指定ID。先更新图床到本测试分支对应的新版镜像；旧版profile没有相册能力标识，工具会在下载/上传之前停止。
-6. 记录实际TG策略ID。工具先通过profile核对Token账号，上传由服务端检查策略权限；不能自动辨别策略类型，需手动确认该用户绑定的策略是TG。
+在该账号创建“频道图片”相册，不需要设为默认。通过账号API或VPS生成专用上传Token，只写入私有env。工具在导入前检查profile的`upload_album_id_supported`和`telegram_photo_groups_supported`；旧镜像会在下载/上传前被拒绝。
 
-## 2. SJC安装独立工具
+默认按名称解析Token账号自己的相册，重名时要求额外指定ID；不存在或无权限时停止。普通上传不传album_id时继续使用原默认相册，账号默认相册不被修改。
 
-在SJC执行；已有目录不要覆盖：
+## 2. SJC首次安装
+
+已有目录不要覆盖。API ID/Hash可复用，用户登录会话与现有Bot API完全分开。
 
 ```bash
 install -d -m 700 /opt/tg-import
@@ -39,21 +35,21 @@ install -m 600 /opt/tg-import/source/tools/tg-channel-import/import.env.example 
 nano /opt/tg-import/import.env
 ```
 
-只在服务器填写：
+仅在服务器填写，不发送到聊天：
 
 ```ini
 TG_API_ID=你的API_ID
 TG_API_HASH=你的API_HASH
 SOURCE_CHANNEL=botmzt
 LSKY_URL=https://dayv.io
-LSKY_TOKEN=专用图床账号Token
-LSKY_STRATEGY_ID=实际TG策略ID
+LSKY_TOKEN=账号原始Token，不加Bearer前缀
+LSKY_STRATEGY_ID=该账号绑定的TG策略ID
 LSKY_ALBUM_NAME=频道图片
 LSKY_ALBUM_ID=0
 IMPORT_AUTHORIZED=no
 ```
 
-可复用现有API ID/API Hash，无需停用Bot API。用户登录会话与Bot API状态完全分开。私有env由root读取，容器用户10001仅访问专用state目录，不挂载现有图床或TG数据目录。
+LSKY_ALBUM_ID=0表示按名称解析，不表示无相册；重名时改为你选定相册的正整数ID。现有SJC的TG策略是2，但其他部署先核对，不能照抄。
 
 ```bash
 docker compose -p tg-import \
@@ -62,9 +58,9 @@ docker compose -p tg-import \
   -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml build
 ```
 
-本工具在SJC本地构建，无需更新Lsky镜像。未开放任何公网端口；默认512MiB内存/1核上限。构建仍需拉取Python基础镜像与PyPI依赖。
+无公网端口、无常驻任务。运行内存上限512MiB/1核，采集状态单独存放，不挂载图床或Bot API数据卷。
 
-## 3. 登录与只读预览
+## 3. 登录和只读预览
 
 ```bash
 docker compose -p tg-import \
@@ -72,7 +68,7 @@ docker compose -p tg-import \
   run --rm -it collector login
 ```
 
-在SJC交互终端填写用户手机号、验证码及两步验证密码；不要填写Bot Token，不要把验证码发给别人。随后预览：
+在终端输入用户手机号、验证码及两步验证密码，不是Bot Token。之后预览不会下载照片或请求图床：
 
 ```bash
 docker compose -p tg-import \
@@ -80,24 +76,23 @@ docker compose -p tg-import \
   run --rm collector preview --limit 20 --scan 200
 ```
 
-只输出候选消息ID/字节数。若没有权限或频道启用内容保护，工具停止；不通过绕过限制采集。
+每行显示source_group和有序消息ID列表；末尾selected是图片候选数，posts是源帖数。账号须有频道访问权，频道开启内容保护则停止。不自动加入频道，也不绕过保护。公开可见不等于允许转载。
 
-## 4. 明确执行20张导入
+## 4. 整组导入
 
-预览无误且已确认图片使用授权，再把私有env中的`IMPORT_AUTHORIZED`改为`yes`：
+确认有使用与展示授权、图床和采集器均更新后，将私有env的IMPORT_AUTHORIZED改为yes，再运行：
 
 ```bash
-nano /opt/tg-import/import.env
 docker compose -p tg-import \
   -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml \
   run --rm collector import --limit 20 --scan 200
 ```
 
-`selected`是候选数量，不等于新增图片数：已有消息、重复内容和超限图片可能跳过。成功输出`imported`和图床key。图床生成文件名为`mzt-消息ID.后缀`，明确写入配置指定的相册，不改变账号默认相册；其他正常上传仍使用原默认相册。上传成功回包也会校验album_id。
+一次处理一个源帖，成功后间隔3秒；下载暂存后整组提交。服务端复用既有ImageService执行权限、格式与容量检查；本次组使用独立随机存储目录，不覆盖历史文件或旧组映射。数据库记录在TG回包及实际照片读取验证后提交。
 
-检查专用用户的“我的图片”，抽查内容、原文件链接和TG消息。被图床去重的图片不一定新增TG消息。工具不会自动把文件改为公开图库列表，也不改变站点原文件URL的访问规则。
+抽查：TG频道照片拼图/顺序、“频道图片”相册归属、每张URL实际打开、图床大小/尺寸与TG下载一致；其他普通上传仍进原默认相册。TG预览照片可能调整原字节，不要用源文件哈希断言TG照片完全相同。
 
-检查状态：
+## 5. 状态、失败和保留范围
 
 ```bash
 docker compose -p tg-import \
@@ -105,22 +100,23 @@ docker compose -p tg-import \
   run --rm collector status
 ```
 
-若出现`uploading`，先停止再次导入，核对`mzt-消息ID.后缀`对应文件及图床日志。首版不提供自动不确定结果修复、无人值守定时同步或全历史批量拉取。
+- 采集端在POST前持久化uploading。结果不确定时停止，不能删除状态库盲目重试。
+- 服务端按账号、TG策略、相册及源帖持久化幂等状态。TG发送前记录sending；完成的源帖可直接返回原结果，未完成/不确定的源帖不自动发送第二次。
+- TG明确返回新消息ID但副本验证失败时回滚本组图床记录，并尽力删除这些已知新消息；不删除原频道帖子、旧文件或未知消息。发送丢失回包时可能留下未知孤立媒体组，需要人工核对。
+- 若数据库已提交而状态文件最后写入失败，记录可能存在，仍需人工核对；不把错误自动当作重传许可。
+- 会话、采集状态位于`/opt/tg-import/state`；服务端组状态位于图床卷`storage/app/tg-photo-import`，需单独私密备份。现有SQLite备份包含图床记录/映射，不代表包含这两个目录。
+- 临时目录成功或异常后清理，强制中断残留的download-*在下次取得独占锁后清理；至少保留2GiB磁盘。不能删除Bot API的TDLib状态或整盘缓存。
 
-## 5. 验证与更新
+## 6. 更新与验证
 
-本地回归：`python3 test/tg-channel-import.test.py`。覆盖预览零下载、HTTP200业务失败、哈希核对、来源/内容去重、断点跳过及不确定上传阻止重传。使用Telegram/Lsky替身；真实账号登录、频道读取、镜像构建和实际API导入仍需SJC验证。
+先等待目标提交的两条Actions成功。更新Lsky到对应sha镜像时保留SJC原来的完整Compose参数及覆盖文件；不改Bot API，不删除卷。采集工具单独git pull与build：
 
-工具后续更新需重新build；若新增服务端接口能力，还须同步更新Lsky镜像，见下方版本要求。`state`和`import.env`保留在源码目录外；不删除会话或导入状态。没有定时任务，运行结束自动退出。
+```bash
+git -C /opt/tg-import/source pull --ff-only origin test/tg-channel-import
+docker compose -p tg-import \
+  -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml build
+```
 
-## 指定相册的版本要求
+保留私有import.env、登录会话和状态，已登录账号无需重新登录。工具使用现有Token，明确相册设置后再重新预览。
 
-本分支新增上传字段`album_id`：未提供时仍使用账号默认相册；0表示不进相册；正整数必须属于当前用户。游客、未知ID、他人相册和非法输入明确拒绝，不回退到默认相册。`GET /api/v1/profile`返回`upload_album_id_supported=true`，`POST /api/v1/upload`回包包含实际album_id，采集端会同时检查。
-
-首次启用指定相册时需要更新Lsky镜像和独立采集工具两边。没有新数据库迁移，原有默认相册设置不变。更新前保留现有env/session/状态库；不要把新代码直接覆盖到生产卷里。已有导入记录不会自动移动相册。
-
-## 文件名与频道媒体组
-
-新导入图片命名为`mzt-22569.jpg`，其中数字是原频道消息ID。图片文档保留允许的扩展名；照片使用.jpg。来源频道ID与消息ID仍独立保存在状态库，去重不依赖文件名；不同频道消息ID重叠造成的物理同名冲突由图床处理。
-
-当前逐张通过图床API导入，再由TG适配器逐张sendDocument，因此目标频道显示独立文档，不保留原帖grouped_id媒体组。Lsky“频道图片”相册是网站分类，与Telegram媒体组不同。此改动只影响新发送名称，不重传或改名已有导入记录；不确定上传结果如来自旧版，也应核对旧`tg_频道ID_消息ID.后缀`名称。
+本地：`python3 test/tg-channel-import.test.py`，`php test/php/telegram-photo-import.php`，以及原TG/分片/R2回归。CI分别构建独立采集镜像和Lsky镜像，覆盖整组顺序、不拆帖、照片实际字节、相册归属、失败回滚和丢回包不重发。替身测试不能替代SJC真实账号的照片组导入验收。
