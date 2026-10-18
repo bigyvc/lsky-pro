@@ -87,6 +87,19 @@ class ImageService
         $image = new Image();
         /** @var User|null $user */
         $user = $request->user();
+        $hasExplicitAlbum = $request->has('album_id');
+        $explicitAlbumId = 0;
+        if ($hasExplicitAlbum) {
+            $value = $request->input('album_id');
+            if (!$user || (!is_string($value) && !is_int($value)) || !ctype_digit((string)$value)) {
+                throw new UploadException('指定相册需要登录，且相册ID必须是非负整数');
+            }
+            $explicitAlbumId = (int)$value;
+            if ($explicitAlbumId && !$user->albums()->whereKey($explicitAlbumId)->exists()) {
+                throw new UploadException('指定相册不存在或不属于当前账号');
+            }
+        }
+
 
         /** @var Group $group */
         $group = ! is_null($user) ? $user->group : Group::query()->where('is_guest', true)->first();
@@ -138,8 +151,10 @@ class ImageService
                 throw new UploadException('储存空间不足');
             }
 
-            // 图片保存至默认相册(若有)
-            if ($albumId = $user->configs->get(UserConfigKey::DefaultAlbum)) {
+            // Explicit API album selection never silently falls back to the default album.
+            if ($hasExplicitAlbum) {
+                $image->album_id = $explicitAlbumId ?: null;
+            } elseif ($albumId = $user->configs->get(UserConfigKey::DefaultAlbum)) {
                 if ($user->albums()->where('id', $albumId)->exists()) {
                     $image->album_id = $albumId;
                 }

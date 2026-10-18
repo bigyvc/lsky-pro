@@ -10,7 +10,7 @@ d8f0aaae7e952f99e4393ed656b73b1a	719ad8d4ba1bacd77e8619f293038ab5	app/Models/Ima
 -	c0b550b85e5d43699b821714842ad04e	app/Models/R2ArchiveJob.php
 -	50da629d6c8dcc0c9932d6bfd5170d16	app/Models/R2ArchivePolicy.php
 -	dcce54d53e25110c28054f59afcb776c	app/Services/ArchivedImageOutput.php
-73a02bfc0c752407fa87b2ab8d963b7c	fdc4e927bf46347dd0550ff59a3aa4da	app/Services/ImageService.php
+73a02bfc0c752407fa87b2ab8d963b7c	48b0c0f0dee031954a4c11364d146f3e	app/Services/ImageService.php
 -	c88ae2a0ec43ef2e2e1b8ae0b10d07ce	app/Services/R2ArchiveQuota.php
 -	a9913570983acb4dcbf38b6d207c9731	app/Services/R2ArchiveService.php
 46ee437ed425d141c503f54310187f3b	aae73d5406754df3007a64546acefde8	app/Services/R2DirectUpload.php
@@ -31,3 +31,5 @@ fa972b4ff379136ff6392c7b6dbc7184	db65c75d80206cfdea444901e0ca2035	routes/web.php
 -	b52d7116fe2b6d8592dd14349d9f0c52	public/js/video-preview.js
 -	4b627ac8a05b17da88818526bdb66159	public/static/audio.svg
 -	0c4670751d8947d1d90c24233e3c5694	public/js/upload-links.js
+0e494999200917028a80003ca1457d2c	86cf77d8e8ad6772cc421cec01e6762f	app/Http/Controllers/Api/V1/ImageController.php
+79c6bf5f3d537d3409904df8b943e96e	ef760f585a3b4973dbc38b00fe10a843	app/Http/Controllers/Api/V1/UserController.php

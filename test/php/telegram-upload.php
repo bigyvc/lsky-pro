@@ -43,12 +43,12 @@ $service=new TestImageService();$adapter=$service->adapter=new TestTelegram($str
 $app->instance(App\Services\ImageService::class,$service);
 $session=$app->make('session')->driver();$session->start();
 $png=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==');
-function upload(string $bytes,string $name='photo.png'):App\Models\Image{
+function upload(string $bytes,string $name='photo.png',?App\Models\User $user=null,array $extra=[]):App\Models\Image{
  global $work,$service,$app,$strategy,$session;
  $path=$work.'/input-'.bin2hex(random_bytes(3));file_put_contents($path,$bytes);
  $file=new Illuminate\Http\UploadedFile($path,$name,null,null,true);
- $request=Illuminate\Http\Request::create('/upload','POST',['strategy_id'=>$strategy->id],[],['file'=>$file]);
- $request->setLaravelSession($session);$request->setUserResolver(fn()=>null);$app->instance('request',$request);
+ $request=Illuminate\Http\Request::create('/upload','POST',array_merge(['strategy_id'=>$strategy->id],$extra),[],['file'=>$file]);
+ $request->setLaravelSession($session);$app->instance('request',$request);$request->setUserResolver(fn()=>$user);
  return $service->store($request);
 }
 $image=upload($png);
@@ -134,5 +134,28 @@ foreach ([null,'zGBFCE-双笙（陈元汐） – 我的一个道姑朋友.flac',
  check(end($adapter->filenames)===$expected,'TG multipart uses safe channel label '.json_encode($label));
  check(App\Models\TelegramFile::where('strategy_id',$strategy->id)->where('path','channel-label.flac')->exists(),'channel label never changes the TG mapping key');
 }
+// Explicit album selection is scoped to the authenticated user and does not alter defaults.
+$group->update(['configs'=>$base,'is_default'=>true]);
+$owner=App\Models\User::create(['name'=>'Import','email'=>'import@example.test','password'=>'test','status'=>App\Enums\UserStatus::Normal]);
+$owner->forceFill(['group_id'=>$group->id,'capacity'=>1048576,'email_verified_at'=>now()])->save();
+$other=App\Models\User::create(['name'=>'Other','email'=>'other@example.test','password'=>'test','status'=>App\Enums\UserStatus::Normal]);
+$defaultAlbum=$owner->albums()->create(['name'=>'Default']);$targetAlbum=$owner->albums()->create(['name'=>'频道图片']);$foreignAlbum=$other->albums()->create(['name'=>'频道图片']);
+$owner->configs=$owner->configs->merge([App\Enums\UserConfigKey::DefaultAlbum=>$defaultAlbum->id]);$owner->save();
+$explicit=upload($png,'album.png',$owner,['album_id'=>(string)$targetAlbum->id]);
+check($explicit->album_id===$targetAlbum->id && $targetAlbum->fresh()->image_num===1 && $defaultAlbum->fresh()->image_num===0,'explicit owned album overrides default and updates the correct album count');
+$normal=upload($png,'default.png',$owner);
+check($normal->album_id===$defaultAlbum->id && $owner->fresh()->configs->get(App\Enums\UserConfigKey::DefaultAlbum)===$defaultAlbum->id,'normal uploads retain unchanged default album');
+$none=upload($png,'none.png',$owner,['album_id'=>'0']);check($none->album_id===null,'explicit zero selects no album');
+$count=App\Models\Image::count();$sent=$adapter->sent;
+foreach([$foreignAlbum->id,999999,-1,'',null,[]] as $invalid) {
+ try {upload($png,'invalid.png',$owner,['album_id'=>$invalid]);throw new Exception('invalid album accepted');}
+ catch(App\Exceptions\UploadException $e) {check(true,'invalid or foreign album rejected '.json_encode($invalid));}
+}
+try {upload($png,'guest-album.png',null,['album_id'=>$targetAlbum->id]);throw new Exception('guest chose an album');}
+catch(App\Exceptions\UploadException $e) {check(true,'guest cannot choose an owned album');}
+check(App\Models\Image::count()===$count && $adapter->sent===$sent,'rejected albums produce no file records or TG messages');
+Illuminate\Support\Facades\Auth::setUser($owner);
+$profile=(new App\Http\Controllers\Api\V1\UserController())->index();
+check(json_decode($profile->getContent(),true)['data']['upload_album_id_supported']===true,'authenticated API profile advertises explicit album support');
 $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($work,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::CHILD_FIRST);
 foreach($it as $item)$item->isDir()?rmdir($item->getPathname()):unlink($item->getPathname());rmdir($work);

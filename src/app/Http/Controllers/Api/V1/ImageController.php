@@ -52,7 +52,7 @@ class ImageController extends Controller
             return $this->fail('服务异常，请稍后再试');
         }
         return $this->success('上传成功', $image->setAppends(['pathname', 'links'])->only(
-            'key', 'name', 'pathname', 'origin_name', 'size', 'mimetype', 'extension', 'md5', 'sha1', 'links'
+            'key', 'album_id', 'name', 'pathname', 'origin_name', 'size', 'mimetype', 'extension', 'md5', 'sha1', 'links'
         ));
     }
 

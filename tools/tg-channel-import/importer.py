@@ -65,6 +65,10 @@ class Lsky:
         if not token or any(c.isspace() for c in token):
             raise ImportFailure('请在私有env填写LSKY_TOKEN原始Token，不加Bearer前缀')
         self.strategy = int(env.get('LSKY_STRATEGY_ID', '0'))
+        self.album_name = env.get('LSKY_ALBUM_NAME', '频道图片').strip()
+        self.album_id = int(env.get('LSKY_ALBUM_ID', '0'))
+        if not self.album_name or self.album_id < 0:
+            raise ImportFailure('请填写LSKY_ALBUM_NAME，或同时指定有效LSKY_ALBUM_ID')
         if self.strategy < 1:
             raise ImportFailure('必须填写专用TG策略ID')
         self.client = httpx.Client(headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/json'},
@@ -74,17 +78,39 @@ class Lsky:
         profile = api_data(self.client.get(self.origin + '/api/v1/profile'))
         if not isinstance(profile, dict) or not profile.get('email'):
             raise ImportFailure('无法确认导入账号身份')
+        if profile.get('upload_album_id_supported') is not True:
+            raise ImportFailure('请先更新图床到支持指定相册的版本，已停止且未上传文件')
+        self.album_id = self.resolve_album()
         # The stock public strategies endpoint is guest-scoped; do not treat it as
         # authoritative for a Bearer user's strategy access. Upload enforces the role.
-        return hashlib.sha256(json.dumps([self.origin, profile['email'], self.strategy]).encode()).hexdigest()
+        return hashlib.sha256(json.dumps([self.origin, profile['email'], self.strategy, self.album_id]).encode()).hexdigest()
+
+    def resolve_album(self):
+        matches = []
+        for page in range(1, 101):
+            data = api_data(self.client.get(self.origin + '/api/v1/albums', params={'page': page}))
+            if not isinstance(data, dict) or not isinstance(data.get('data'), list):
+                raise ImportFailure('相册接口格式异常')
+            for album in data['data']:
+                if album.get('name') == self.album_name and (not self.album_id or int(album['id']) == self.album_id):
+                    matches.append(int(album['id']))
+            if not data.get('next_page_url'):
+                break
+        else:
+            raise ImportFailure('相册列表过长，停止导入')
+        if len(matches) != 1:
+            raise ImportFailure('未找到唯一的目标相册；确认名称，重名时额外设置LSKY_ALBUM_ID')
+        return matches[0]
 
     def upload(self, path, filename, hashes):
         with path.open('rb') as f:
             data = api_data(self.client.post(self.origin + '/api/v1/upload',
-                data={'strategy_id': str(self.strategy)},
+                data={'strategy_id': str(self.strategy), 'album_id': str(self.album_id)},
                 files={'file': (filename, f, mimetypes.guess_type(filename)[0] or 'application/octet-stream')}))
         if not isinstance(data, dict) or not data.get('key') or not data.get('links', {}).get('url'):
             raise ImportFailure('上传回包缺少文件记录')
+        if data.get('album_id') != self.album_id:
+            raise ImportFailure('上传回包相册不符，请核对记录，不自动重试')
         if data.get('md5') != hashes['md5'] or data.get('sha1') != hashes['sha1']:
             raise ImportFailure('图床内容哈希不符，请关闭导入角色图片转换、水印和重编码')
         return {'key': data['key'], 'url': data['links']['url']}

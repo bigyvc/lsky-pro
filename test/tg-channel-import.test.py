@@ -89,13 +89,37 @@ class Tests(unittest.TestCase):
             self.assertFalse(list(Path(tmp).glob('download-*')))
             self.assertEqual(m.State(Path(tmp)/'imports.sqlite').get('scope', 1, 1)[0], 'uploading')
 
+    def test_album_resolution_paginates_and_requires_unique_name(self):
+        api=m.Lsky.__new__(m.Lsky);api.origin='https://example.test';api.album_name='频道图片';api.album_id=0
+        class Client:
+            def get(self,url,params):
+                page=params['page']
+                albums=[{'id':1,'name':'Other'}] if page==1 else [{'id':7,'name':'频道图片'}]
+                return Response({'status':True,'data':{'data':albums,'next_page_url':'next' if page==1 else None}})
+        api.client=Client();self.assertEqual(api.resolve_album(),7)
+        class Duplicates:
+            def get(self,*a,**kw):
+                return Response({'status':True,'data':{'data':[{'id':7,'name':'频道图片'},{'id':8,'name':'频道图片'}],'next_page_url':None}})
+        api.client=Duplicates()
+        with self.assertRaises(m.ImportFailure):api.resolve_album()
+        api.album_id=8;self.assertEqual(api.resolve_album(),8)
+        api.album_id=9
+        with self.assertRaises(m.ImportFailure):api.resolve_album()
+
+    def test_old_server_rejected_before_any_upload(self):
+        api=m.Lsky.__new__(m.Lsky);api.origin='https://example.test'
+        class Client:
+            def get(self,*a,**kw):return Response({'status':True,'data':{'email':'a@example.test'}})
+        api.client=Client()
+        with self.assertRaises(m.ImportFailure):api.check()
+
     def test_upload_checks_actual_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'a.jpg';path.write_bytes(b'abc')
-            api = m.Lsky.__new__(m.Lsky);api.origin = 'https://example.test';api.strategy = 2
+            api = m.Lsky.__new__(m.Lsky);api.origin = 'https://example.test';api.strategy = 2;api.album_id = 7
             class Client:
                 def post(self, *a, **kw):
-                    return Response({'status': True, 'data': {'key':'x','links':{'url':'https://example.test/x'},'md5':'wrong','sha1':'wrong'}})
+                    return Response({'status': True, 'data': {'key':'x','album_id':7,'links':{'url':'https://example.test/x'},'md5':'wrong','sha1':'wrong'}})
             api.client = Client()
             with self.assertRaises(m.ImportFailure): api.upload(path, 'a.jpg', m.digest(path))
 

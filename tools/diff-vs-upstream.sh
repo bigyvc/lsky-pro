@@ -296,6 +296,10 @@ src/app/Http/Controllers/Admin/ImageController.php
 #     自检脚本：tools/check-tag-integrity.php）
 src/app/Services/UserService.php
 src/app/Http/Controllers/Admin/UserController.php
+# Optional channel import: upload replies include actual album_id; authenticated profile
+# advertises explicit album selection so older servers fail before import begins.
+src/app/Http/Controllers/Api/V1/ImageController.php
+src/app/Http/Controllers/Api/V1/UserController.php
 
 # [11 文案（2026-10-09 UI 迭代）：注册页「姓名」标签改成「昵称」]
 #   src/lang/zh_CN.json（__('Name') 全站只有注册页 auth/register.blade.php 用这一处，改它不影响别处；
