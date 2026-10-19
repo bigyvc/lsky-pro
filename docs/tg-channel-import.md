@@ -155,7 +155,9 @@ docker compose -p tg-import \
   run --rm collector import-history --max-posts 20 --download-kib 1024 --interval 30
 ```
 
-默认从最老往最新搬运（--order oldest），可显式选择--order newest；不把全部消息载入内存。Telethon自动翻页，原帖照片组跨页时继续收齐后整组处理，只有正常读到历史末尾才提交最后一组。第一次启动固定最新消息ID；后来新增的帖子不加入该任务，避免全量搬运一直追赶变化的频道。
+默认从最老往最新搬运（--order oldest），可显式选择--order newest。照片组不能按相邻消息判断：源频道可能出现A1、B1、A2、B2交错排列。首次运行新版会扫描完整频道消息元数据，将消息ID与grouped_id索引到采集SQLite（不下载图片），每500条报告进度；索引完整后才允许上传。后续批量获取最多100条消息对象，按完整grouped_id组合，不将全部消息对象放进内存。索引中断后重新建立，绝不提交半组。快照之后同组还有成员时拒绝截断，不发送半组。
+
+第一次启动固定最新消息ID；后来新增帖子不加入任务。已有快照的索引后续复用，每次获取原帖时仍检查源消息存在、grouped_id一致。历史源帖发生删除/变更时会停下来，不以残缺内容继续。短窗口preview只做预览，实际import与import-history均使用完整元数据索引。
 
 `--max-posts 20`在本次处理20个原帖后暂停，包括已完成跳过和非照片帖子；不会拆组。以前最近20张的已成功记录会复用，不重新下载或重发。结果不确定、旧版仅导入半组的记录会停止任务，不能删库强行重试。
 
@@ -196,7 +198,7 @@ docker compose -p tg-import \
   run --rm collector status
 ```
 
-`offset`是已处理完整原帖的边界：oldest模式取组内最大ID（下次只取更新消息），newest模式取最小ID（下次只取更老消息）；`imported`为本历史任务确认的新图数量，`reused`为已有成功记录，`download_bytes`仅统计已确认成功新帖的源下载量，失败时已用掉的流量不会计入。完成标记表示整个快照扫描完成，仍需检查跳过原因；不表示频道所有类型都已搬运。
+`group_cursor=complete-v2` 表示新版游标：oldest按每组最小ID排序并记录最小ID，newest按每组最大ID排序并记录最大ID；成员仍按ID升序。这样一组跨越另一组时，暂停后不会跳过中间原帖。旧游标升级前会检测是否截断交错组，发现半组则停止，必须定向恢复；不能强行修改游标标记。`offset`不一定等于最后下载的成员ID；`imported`为本历史任务确认的新图数量，`reused`为已有成功记录，`download_bytes`仅统计已确认成功新帖的源下载量，失败时已用掉的流量不会计入。完成标记表示整个快照扫描完成，仍需检查跳过原因；不表示频道所有类型都已搬运。
 
 游标、累计统计与跳过原因写入原`/opt/tg-import/state/imports.sqlite`，每个整帖确认后落盘。如果成功记录已写入而游标写入中断，下次复用该帖记录再推进，不重复发送；发送结果不确定则停在原游标，人工核对后处理。未完成照片组不会因为分页或网络异常被当成完成。
 
@@ -245,3 +247,44 @@ docker compose -p tg-import \
 ```
 
 TG的`telegram_files`是文件路径→file_id映射，图床`images`是资源记录；另外还有R2归档映射、服务端照片组幂等状态、采集器去重/游标。这些不是同一张表。正常删除资源时应由应用维护映射；发现残留时先检查资源数、引用及归档任务，再备份后清理孤立行。不要因为删了测试媒体就整库清空，更不能删除存储策略、登录会话或Bot API的TDLib目录。reset本身不会删除这些服务端数据。
+
+
+## 9. 交错照片组修复与此次5771～5774恢复
+
+2026-10-19确认源帖交错为：5771和5773同组，5772和5774同组。旧版把5771、5772分别作为单张完成；提交5773时触发服务端“相同源帖内容发生变化”保护。不是通用网络500，不能简单删除不确定登记或跳过5773。
+
+新版采集器使用完整元数据索引与组边界游标；下载单张默认120秒超时，最多3次尝试，可通过 `--download-timeout 120 --download-attempts 3` 设置。下载重试只在任何上传意图写入前发生；不会自动重试发送结果不确定的POST。元数据读取也有120秒超时，索引没有完整完成时不上传。
+
+### 9.1 更新采集器，图床容器无需为本修复重建
+
+确认 `tg-import-oldest-fast` 已退出。保留原 `/opt/tg-import/state`、私有env与会话。拉取已包含修复的分支提交并在SJC本地构建：
+
+```bash
+git -C /opt/tg-import/source pull --ff-only origin test/tg-channel-import
+docker compose -p tg-import -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml build collector
+```
+
+### 9.2 仅用于本次已确认状态的定向恢复
+
+脚本不是通用reset，默认只读预览。它要求旧游标恰为5772、唯一uploading恰为5773，两个旧done登记恰为5771和5772，图床编码与采集状态一致，并检查5773/5774还没有对应图床记录。任一条件不符即拒绝。
+
+```bash
+python3 /opt/tg-import/source/tools/tg-channel-import/recover-interleaved.py
+python3 /opt/tg-import/source/tools/tg-channel-import/recover-interleaved.py --apply
+```
+
+执行时先取得采集锁和服务端用户导入锁，备份采集SQLite及两条旧登记到 `/opt/tg-import/recovery-interleaved-时间戳`；只退回两帖的本地记录/统计，将游标恢复到5770，并将两条旧done JSON改名保留审计。**不删除图床数据库记录、不删除TG消息、不删除图片或原链接，不改其他已完成记录或登录会话。**
+
+之后重传两个完整原帖（5771+5773、5772+5774）。服务端完整验证后，同一图库组会改为完整成员；两个旧单张文件和TG消息仍然保留，因此TG会多出这两条历史单张，暂不自动清理。
+
+### 9.3 必须用新版采集镜像重建任务
+
+`docker start`旧容器仍运行旧镜像，不能修复此问题。先将已停止旧任务改名留作备份，再创建原名的新任务：
+
+```bash
+docker rename tg-import-oldest-fast "tg-import-oldest-before-interleaved-$(date +%Y%m%d-%H%M%S)"
+docker compose -p tg-import -f /opt/tg-import/source/tools/tg-channel-import/compose.yaml run -d --name tg-import-oldest-fast collector import-history --order oldest --until 22569 --download-kib 1024 --interval 3 --download-timeout 120 --download-attempts 3
+docker logs --tail 30 -f tg-import-oldest-fast
+```
+
+首先显示 `indexing_source_posts`，扫描的是元数据，不是逐张下载；22,000条规模通常需等待一段时间，期间会打印进度。之后显示 `source_index_ready`、两个完整原帖的imported结果并继续后续消息。正常退出日志跟踪使用Ctrl+C。不用删除orphan容器或运行remove-orphans，原采集状态共享于 `/opt/tg-import/state`。

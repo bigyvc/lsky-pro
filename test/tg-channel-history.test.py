@@ -31,6 +31,9 @@ class Telegram:
             # Force async/page scheduling boundaries between members of the same group.
             await asyncio.sleep(0)
             yield msg
+    async def get_messages(self, entity, ids):
+        found={msg.id:msg for msg in self.messages}
+        return [found.get(n) for n in ids]
     async def download_media(self, msg, file, progress_callback=None):
         self.downloads.append(msg.id)
         Path(file).write_bytes(b'abc')
@@ -76,7 +79,7 @@ class HistoryTests(unittest.TestCase):
             api=API()
             run(m.history(tg,NS(id=1),args(max_posts=1),root,api))
             job=m.State(root/'imports.sqlite').job('scope',1)
-            self.assertEqual(job['offset'],7);self.assertFalse(job['completed'])
+            self.assertEqual(job['offset'],8);self.assertFalse(job['completed'])
             tg.messages.insert(0,photo(9))  # Newer posts must not move a resumed snapshot.
             run(m.history(tg,NS(id=1),args(),root,api))
             self.assertEqual(api.groups,[('1:g20',['mzt-7.jpg','mzt-8.jpg']),('1:g19',['mzt-5.jpg','mzt-6.jpg']),('1:s4',['mzt-4.jpg'])])
@@ -112,8 +115,8 @@ class HistoryTests(unittest.TestCase):
             root=Path(tmp);api=API();tg=Telegram([photo(9),photo(8,20),photo(7,20),photo(6)],fail_at=7)
             with self.assertRaises(OSError),redirect_stdout(io.StringIO()):
                 asyncio.run(m.history(tg,NS(id=1),args(),root,api))
-            self.assertEqual(len(api.groups),1)
-            self.assertEqual(m.State(root/'imports.sqlite').job('scope',1)['offset'],9)
+            self.assertEqual(len(api.groups),0)
+            self.assertEqual(m.State(root/'imports.sqlite').job('scope',1)['offset'],0)
             tg.fail_at=None
             run(m.history(tg,NS(id=1),args(),root,api))
             self.assertEqual([row[0] for row in api.groups],['1:s9','1:g20','1:s6'])
@@ -158,7 +161,7 @@ class HistoryTests(unittest.TestCase):
             options=args(max_posts=2);options.order='oldest';options.until=6
             run(m.history(tg,NS(id=1),options,root,api))
             state=m.State(root/'imports.sqlite');job=state.job('scope',1)
-            self.assertEqual(job['offset'],3);self.assertEqual(job['snapshot'],6)
+            self.assertEqual(job['offset'],2);self.assertEqual(job['snapshot'],6)
             options.max_posts=0
             run(m.history(tg,NS(id=1),options,root,api))
             self.assertEqual(api.groups,[('1:s1',['mzt-1.jpg']),('1:g10',['mzt-2.jpg','mzt-3.jpg']),('1:g20',['mzt-5.jpg','mzt-6.jpg'])])
@@ -206,7 +209,7 @@ class HistoryTests(unittest.TestCase):
                 raise OSError('source connection lost')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);api=API()
-            with self.assertRaises(OSError),redirect_stdout(io.StringIO()):
+            with self.assertRaises(m.ImportFailure),redirect_stdout(io.StringIO()):
                 asyncio.run(m.history(Broken([photo(2),photo(1)]),NS(id=1),args(),root,api))
             self.assertEqual(api.groups,[])
             self.assertIsNone(m.State(root/'imports.sqlite').get('scope',1,2))
@@ -229,6 +232,64 @@ class HistoryTests(unittest.TestCase):
                 m.main()
             self.assertTrue(stale.exists())
             self.assertIn('"mode": "status"',out.getvalue())
+
+
+    def test_interleaved_groups_reunite_before_any_upload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);api=API();tg=Telegram([photo(5774,2),photo(5773,1),photo(5772,2),photo(5771,1),photo(5770)])
+            options=args();options.order='oldest';options.until=5774
+            run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(api.groups,[('1:s5770',['mzt-5770.jpg']),('1:g1',['mzt-5771.jpg','mzt-5773.jpg']),('1:g2',['mzt-5772.jpg','mzt-5774.jpg'])])
+            self.assertEqual(m.State(root/'imports.sqlite').job('scope',1)['stats']['imported'],5)
+
+    def test_interleaved_restart_cannot_skip_nested_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);api=API();tg=Telegram([photo(10,1),photo(4,2),photo(3,2),photo(1,1)])
+            options=args(max_posts=1);options.order='oldest'
+            run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(m.State(root/'imports.sqlite').job('scope',1)['offset'],1)
+            options.max_posts=0
+            run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(api.groups,[('1:g1',['mzt-1.jpg','mzt-10.jpg']),('1:g2',['mzt-3.jpg','mzt-4.jpg'])])
+            self.assertEqual(m.State(root/'imports.sqlite').job('scope',1)['stats']['imported'],4)
+
+    def test_legacy_cursor_crossing_stops_before_download_or_post(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);state=m.State(root/'imports.sqlite');api=API()
+            state.checkpoint('scope',1,{'order':'oldest','requested_until':4,'snapshot':4,'offset':2,'completed':False,'ceiling':8*1024**2,'stats':m.history_stats()})
+            state.save('scope',1,1,'done','sha',{'key':'old1'});state.save('scope',1,2,'done','sha',{'key':'old2'})
+            tg=Telegram([photo(4,2),photo(3,1),photo(2,2),photo(1,1)])
+            options=args();options.order='oldest';options.until=4
+            with self.assertRaisesRegex(m.ImportFailure,'旧游标'),redirect_stdout(io.StringIO()):
+                asyncio.run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(api.groups,[]);self.assertEqual(tg.downloads,[]);self.assertEqual(state.job('scope',1)['offset'],2)
+
+    def test_index_failure_never_uploads_and_rebuilds_on_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);api=API();tg=Telegram([photo(4,1),photo(3,2),photo(2,2),photo(1,1)],fail_at=3)
+            options=args();options.order='oldest'
+            with self.assertRaises(OSError),redirect_stdout(io.StringIO()):
+                asyncio.run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(api.groups,[])
+            tg.fail_at=None;run(m.history(tg,NS(id=1),options,root,api))
+            self.assertEqual(len(api.groups),2)
+
+    def test_source_download_timeout_retries_before_upload_intents(self):
+        class Hanging(Telegram):
+            async def download_media(self,msg,file,**kwargs):
+                self.downloads.append(msg.id);Path(file).write_bytes(b'partial')
+                await asyncio.Event().wait()
+        async def attempt():
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);api=API();tg=Hanging([photo(1)])
+                options=args();options.download_timeout=.01;options.download_attempts=2
+                with self.assertRaises(m.ImportFailure),redirect_stdout(io.StringIO()):
+                    with patch.object(m.asyncio,'sleep',new=no_sleep):
+                        await m.import_post(tg,NS(id=1),[photo(1)],root,m.State(root/'imports.sqlite'),'scope',api,options)
+                self.assertEqual(tg.downloads,[1,1]);self.assertEqual(api.groups,[])
+                self.assertIsNone(m.State(root/'imports.sqlite').get('scope',1,1));self.assertFalse(list(root.glob('download-*')))
+        async def no_sleep(_):pass
+        asyncio.run(attempt())
 
     def test_reject_bad_pagination_and_changed_filter(self):
         async def gather():return [p async for p in m.history_posts(Telegram([photo(2),photo(3)]),NS(id=1),3,0)]

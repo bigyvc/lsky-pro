@@ -20,9 +20,13 @@ class Response:
 
 class FakeTelegram:
     def __init__(self): self.downloads = 0
-    async def iter_messages(self, entity, limit):
-        for n in range(1, 5):
+    async def iter_messages(self, entity, limit=None, max_id=0, reverse=False, **kw):
+        ids=[n for n in range(4,0,-1) if not max_id or n<max_id]
+        if reverse:ids.reverse()
+        for n in (ids[:limit] if limit else ids):
             yield NS(id=n, photo=True, file=NS(size=3))
+    async def get_messages(self,entity,ids):
+        return [NS(id=n,photo=True,file=NS(size=3)) for n in ids]
     async def download_media(self, msg, file):
         self.downloads += 1
         Path(file).write_bytes(b'abc')
@@ -75,10 +79,10 @@ class Tests(unittest.TestCase):
                 asyncio.run(m.collect(client, NS(id=1), args, Path(tmp), {}, api))
             finally: m.asyncio.sleep = old_sleep
             self.assertEqual(api.uploads, 2)
-            self.assertEqual(api.filenames, ['mzt-1.jpg', 'mzt-2.jpg'])
+            self.assertEqual(api.filenames, ['mzt-4.jpg', 'mzt-3.jpg'])
             self.assertEqual(client.downloads, 2)
             self.assertFalse(list(Path(tmp).glob('download-*')))
-            self.assertEqual(m.State(Path(tmp)/'imports.sqlite').get('scope', 1, 2)[0], 'done')
+            self.assertEqual(m.State(Path(tmp)/'imports.sqlite').get('scope', 1, 3)[0], 'done')
 
     def test_uncertain_upload_blocks_automatic_resubmit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -89,7 +93,7 @@ class Tests(unittest.TestCase):
                     asyncio.run(m.collect(client, NS(id=1), args, Path(tmp), {}, api))
             self.assertEqual(api.uploads, 1)
             self.assertFalse(list(Path(tmp).glob('download-*')))
-            self.assertEqual(m.State(Path(tmp)/'imports.sqlite').get('scope', 1, 1)[0], 'uploading')
+            self.assertEqual(m.State(Path(tmp)/'imports.sqlite').get('scope', 1, 4)[0], 'uploading')
 
     def test_album_resolution_paginates_and_requires_unique_name(self):
         api=m.Lsky.__new__(m.Lsky);api.origin='https://example.test';api.album_name='频道图片';api.album_id=0

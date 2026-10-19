@@ -159,7 +159,7 @@ class State:
 
 
 def select_posts(messages, limit, scan):
-    # Telegram albums are consecutive messages. Never split one at the selection boundary.
+    # Group IDs can interleave; this recent-window preview must not imply adjacency.
     groups = {}
     for msg in messages:
         gid = getattr(msg, 'grouped_id', None)
@@ -233,7 +233,19 @@ async def import_post(client, entity, members, root, state, scope, api, args):
             options = {'file': str(path)}
             if getattr(args, 'download_kib', 0):
                 options['progress_callback'] = DownloadPacer(args.download_kib).callback()
-            await client.download_media(msg, **options)
+            attempts=getattr(args,'download_attempts',3)
+            for attempt in range(attempts):
+                try:
+                    await asyncio.wait_for(client.download_media(msg, **options),getattr(args,'download_timeout',120))
+                    break
+                except (TimeoutError,OSError) as exc:
+                    path.unlink(missing_ok=True)
+                    print(json.dumps({'mode':'source_download_retry','message':msg.id,'attempt':attempt+1,'error':type(exc).__name__}),flush=True)
+                    if attempt+1>=attempts: raise ImportFailure('源照片下载超时或连接失败；尚未提交上传，保留进度') from None
+                    if hasattr(client,'disconnect') and hasattr(client,'connect'):
+                        await asyncio.wait_for(client.disconnect(),30)
+                        await asyncio.wait_for(client.connect(),30)
+                    await asyncio.sleep(2**attempt)
             if not path.is_file() or not 0 < path.stat().st_size <= ceiling:
                 raise ImportFailure('下载照片为空或超限，停止整组')
             downloaded += path.stat().st_size
@@ -259,47 +271,120 @@ async def import_post(client, entity, members, root, state, scope, api, args):
 async def collect(client, entity, args, root, env, api=None):
     state = State(root / 'imports.sqlite') if api else None
     scope = api.check() if api else None
-    messages = [msg async for msg in client.iter_messages(entity, limit=args.scan)]
-    posts = select_posts(messages, args.limit, args.scan)
-    count = 0
-    for group, members in posts:
-        count += len(members)
-        source_group = str(entity.id) + ':' + group[0] + str(group[1])
-        print(json.dumps({'source_group': source_group, 'messages': [m.id for m in members], 'action': args.command}), flush=True)
+    async def candidates():
         if api:
-            reason = skip_reason(members, min(args.max_bytes, 8 * 1024**2))
-            if reason:
-                print(json.dumps({'skipped': [msg.id for msg in members], 'reason': reason}), flush=True)
-                continue
-            await import_post(client, entity, members, root, state, scope, api, args)
-    print(json.dumps({'selected': count, 'posts': len(posts), 'mode': args.command}), flush=True)
+            snapshot=await latest_id(client,entity)
+            async for post in history_posts(client,entity,snapshot,0,'newest',state,scope):
+                yield post
+        else:
+            # A quick recent-window preview never uploads. Actual imports resolve
+            # complete source groups from the full metadata manifest above.
+            messages=[msg async for msg in client.iter_messages(entity,limit=args.scan)]
+            for post in select_posts(messages,args.limit,args.scan): yield post
+    count=0;selected=0;scanned=0
+    async for group,members in candidates():
+        scanned+=len(members)
+        if not all(getattr(msg,'photo',None) for msg in members):
+            if scanned>=args.scan: break
+            continue
+        if count+len(members)>args.limit: break
+        count+=len(members);selected+=1
+        source_group=str(entity.id)+':'+group[0]+str(group[1])
+        print(json.dumps({'source_group':source_group,'messages':[msg.id for msg in members],'action':args.command}),flush=True)
+        if api:
+            reason=skip_reason(members,min(args.max_bytes,8*1024**2))
+            if reason: print(json.dumps({'skipped':[msg.id for msg in members],'reason':reason}),flush=True)
+            else: await import_post(client,entity,members,root,state,scope,api,args)
+        if count>=args.limit or scanned>=args.scan: break
+    print(json.dumps({'selected':count,'posts':selected,'mode':args.command}),flush=True)
 
 
-async def history_posts(client, entity, snapshot, offset, order='newest'):
-    """Telethon paginates; keep an album across page boundaries, never across failures."""
-    ascending = order == 'oldest'
-    above = [msg async for msg in client.iter_messages(entity, limit=1, offset_id=snapshot, reverse=True)] if snapshot else []
-    boundary_group = getattr(above[0], 'grouped_id', None) if above else None
-    pending = []; key = None; previous = offset if ascending else (offset or snapshot + 1)
-    options = dict(limit=None, offset_id=offset, max_id=snapshot + 1, wait_time=1)
-    if ascending:
-        options['reverse'] = True
-    async for msg in client.iter_messages(entity, **options):
-        if msg.id > snapshot or (msg.id <= previous if ascending else msg.id >= previous):
-            raise ImportFailure('历史分页顺序异常，停止且不推进当前组游标')
-        previous = msg.id
-        current = post_key(msg)
-        if current[0] == 'g' and current[1] == boundary_group:
-            raise ImportFailure('历史上限截断了原媒体组，停止而不发送半组；需选择完整原帖边界')
-        if pending and current != key:
-            yield key, sorted(pending, key=lambda member: member.id)
-            pending = []
-        key = current
-        pending.append(msg)
-        if len(pending) > 10:
-            raise ImportFailure('源媒体组超过10条，停止而不拆分')
-    if pending:
-        yield key, sorted(pending, key=lambda member: member.id)
+
+async def latest_id(client,entity):
+    iterator=client.iter_messages(entity,limit=1).__aiter__()
+    try: return (await asyncio.wait_for(anext(iterator),120)).id
+    except StopAsyncIteration: return 0
+
+
+class SnapshotIndex:
+    """Disk-backed, complete message-ID manifest; never retain or download media here."""
+    def __init__(self, db, scope, channel, snapshot):
+        self.db=db; self.identity=(scope,channel,snapshot)
+        db.execute("CREATE TABLE IF NOT EXISTS source_indexes (scope TEXT,channel INTEGER,snapshot INTEGER,ready INTEGER,PRIMARY KEY(scope,channel,snapshot))")
+        db.execute("CREATE TABLE IF NOT EXISTS source_messages (scope TEXT,channel INTEGER,snapshot INTEGER,message INTEGER,post TEXT,PRIMARY KEY(scope,channel,snapshot,message))")
+        db.execute("CREATE INDEX IF NOT EXISTS source_message_posts ON source_messages(scope,channel,snapshot,post)")
+        db.commit()
+
+    async def build(self, client, entity):
+        row=self.db.execute('SELECT ready FROM source_indexes WHERE scope=? AND channel=? AND snapshot=?',self.identity).fetchone()
+        if row and row[0]: return
+        with self.db:
+            self.db.execute('DELETE FROM source_messages WHERE scope=? AND channel=? AND snapshot=?',self.identity)
+            self.db.execute('INSERT OR REPLACE INTO source_indexes VALUES (?,?,?,0)',self.identity)
+        # Scan through the current latest message as well, so an explicit historical
+        # upper bound cannot silently cut an interleaved group in half.
+        ceiling=max(self.identity[2],await latest_id(client,entity))
+        count=0; previous=0
+        print(json.dumps({'mode':'indexing_source_posts','snapshot':self.identity[2],'media_downloads':0}),flush=True)
+        iterator=client.iter_messages(entity,limit=None,max_id=ceiling+1,reverse=True,wait_time=1).__aiter__()
+        while True:
+            try: msg=await asyncio.wait_for(anext(iterator),120)
+            except StopAsyncIteration: break
+            if msg.id<=previous or msg.id>ceiling: raise ImportFailure('源消息索引顺序异常，未上传文件')
+            previous=msg.id; group=post_key(msg); name=group[0]+str(group[1])
+            self.db.execute('INSERT INTO source_messages VALUES (?,?,?,?,?)',(*self.identity,msg.id,name))
+            count+=1
+            if count%500==0:
+                self.db.commit()
+                print(json.dumps({'mode':'indexing_source_posts','messages':count,'last_message':msg.id,'media_downloads':0}),flush=True)
+        self.db.commit()
+        invalid=self.db.execute('SELECT post FROM source_messages WHERE scope=? AND channel=? AND snapshot=? GROUP BY post HAVING MIN(message)<=? AND (MAX(message)>? OR COUNT(*)>10) LIMIT 1',(*self.identity,self.identity[2],self.identity[2])).fetchone()
+        if invalid: raise ImportFailure('快照上限截断照片组或源组超过10条，未上传文件')
+        with self.db: self.db.execute('UPDATE source_indexes SET ready=1 WHERE scope=? AND channel=? AND snapshot=?',self.identity)
+        print(json.dumps({'mode':'source_index_ready','messages':count,'media_downloads':0}),flush=True)
+
+    def groups(self, offset, order, legacy=False):
+        ascending=order=='oldest'; edge='MIN' if ascending else 'MAX'; direction='ASC' if ascending else 'DESC'
+        if legacy and offset:
+            crossing=self.db.execute('SELECT post FROM source_messages WHERE scope=? AND channel=? AND snapshot=? GROUP BY post HAVING MIN(message)<=? AND MAX(message)>? LIMIT 1' if ascending else 'SELECT post FROM source_messages WHERE scope=? AND channel=? AND snapshot=? GROUP BY post HAVING MIN(message)<? AND MAX(message)>=? LIMIT 1',(*self.identity,offset,offset)).fetchone()
+            if crossing: raise ImportFailure('旧游标截断了交错照片组，需先执行定向恢复，不能跳过或自动重发')
+        sql='SELECT post,MIN(message),MAX(message) FROM source_messages WHERE scope=? AND channel=? AND snapshot=? AND message<=? GROUP BY post'
+        params=(*self.identity,self.identity[2])
+        if offset: sql+=' HAVING '+edge+'(message)'+('>' if ascending else '<')+'?';params+= (offset,)
+        sql+=' ORDER BY '+edge+'(message) '+direction+',post '+direction
+        for name,low,high in self.db.execute(sql,params):
+            ids=[row[0] for row in self.db.execute('SELECT message FROM source_messages WHERE scope=? AND channel=? AND snapshot=? AND post=? ORDER BY message',(*self.identity,name))]
+            yield (name[0],int(name[1:])),ids
+
+
+async def history_posts(client, entity, snapshot, offset, order='newest', state=None, scope='plan', legacy=False):
+    db=state.db if state else sqlite3.connect(':memory:')
+    try:
+        index=SnapshotIndex(db,scope,entity.id,snapshot)
+        await index.build(client,entity)
+        # Fetch at most 100 source message objects at a time, whole groups only.
+        batch=[]; count=0
+        async def fetch(posts):
+            ids=[n for _,members in posts for n in members]
+            messages=await asyncio.wait_for(client.get_messages(entity,ids=ids),120)
+            found={msg.id:msg for msg in messages if msg is not None and getattr(msg,'id',None) in ids}
+            if len(found)!=len(ids): raise ImportFailure('快照内源消息已删除或无法读取，停止而不发送半组')
+            result=[]
+            for key,members in posts:
+                group=[found[n] for n in members]
+                if any(post_key(msg)!=key for msg in group): raise ImportFailure('源照片组发生变化，停止而不重发')
+                result.append((key,group))
+            return result
+        for key,ids in index.groups(offset,order,legacy):
+            if count+len(ids)>100:
+                for post in await fetch(batch): yield post
+                batch=[];count=0
+            batch.append((key,ids));count+=len(ids)
+        if batch:
+            for post in await fetch(batch): yield post
+    finally:
+        db.rollback()  # Release a partially built metadata index after network errors.
+        if state is None: db.close()
 
 
 def history_stats():
@@ -339,8 +424,8 @@ async def history(client, entity, args, root, api=None):
     if job and job['ceiling'] != ceiling:
         raise ImportFailure('不能在同一历史任务中改变文件大小筛选条件')
     if not job:
-        latest = [msg async for msg in client.iter_messages(entity, limit=1)]
-        snapshot = min(latest[0].id, until) if latest and until else (latest[0].id if latest else 0)
+        latest=await latest_id(client,entity)
+        snapshot=min(latest,until) if latest and until else latest
         job = {'order': order, 'requested_until': until, 'snapshot': snapshot, 'offset': 0, 'completed': False, 'ceiling': ceiling,
                'started_at': int(time.time()), 'updated_at': int(time.time()), 'stats': history_stats()}
         if state:
@@ -349,7 +434,7 @@ async def history(client, entity, args, root, api=None):
         report_history(job, 'already_completed'); return
     report_history(job, 'resuming' if job['offset'] else 'starting')
     processed = 0; last_report = time.monotonic()
-    async for group, members in history_posts(client, entity, job['snapshot'], job['offset'], order):
+    async for group, members in history_posts(client, entity, job['snapshot'], job['offset'], order, state, scope or 'plan', job.get('group_cursor')!='complete-v2'):
         if state and any((row := state.get(scope, entity.id, msg.id)) and row[0] == 'uploading' for msg in members):
             raise ImportFailure('历史任务遇到发送结果不确定的记录，停止且不推进游标，请人工核对')
         reason = skip_reason(members, ceiling)
@@ -357,7 +442,10 @@ async def history(client, entity, args, root, api=None):
         if api and not reason:
             outcome, downloaded = await import_post(client, entity, members, root, state, scope, api, args)
         add_stats(job['stats'], members, reason, outcome, downloaded)
-        job['offset'] = (max if order == 'oldest' else min)(msg.id for msg in members)
+        # v2 cursor is the post's first edge, not its last member: interleaved
+        # later posts can have members below the current group's last message.
+        job['offset'] = (min if order == 'oldest' else max)(msg.id for msg in members)
+        job['group_cursor'] = 'complete-v2'
         job['updated_at'] = int(time.time())
         if state:
             state.checkpoint(scope, entity.id, job, (members, reason) if reason else None)
@@ -393,6 +481,9 @@ def reset_import_state(root, scope, channel, apply=False):
     with state.db:
         for name in counts:
             state.db.execute('DELETE FROM '+name+' WHERE scope=? AND channel=?', (scope, channel))
+    for name in ('source_messages','source_indexes'):
+        if state.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(name,)).fetchone():
+            with state.db: state.db.execute('DELETE FROM '+name+' WHERE scope=? AND channel=?',(scope,channel))
     print(json.dumps({'mode': 'reset_completed', 'backup': backup.name, 'session_preserved': True}), flush=True)
 
 
@@ -450,11 +541,15 @@ def main():
     parser.add_argument('--max-bytes', type=int, default=25 * 1024**2)
     parser.add_argument('--download-kib', type=int, default=1024, help='Source download average KiB/s (64..102400)')
     parser.add_argument('--interval', type=float, default=30, help='Seconds between imported source posts (3..3600)')
+    parser.add_argument('--download-timeout',type=int,default=120,help='Per-photo download timeout, seconds (30..600)')
+    parser.add_argument('--download-attempts',type=int,default=3,help='Source download attempts before any upload (1..3)')
     parser.add_argument('--max-posts', type=int, default=0, help='Pause history after this many posts; 0=all')
     parser.add_argument('--order', choices=['oldest', 'newest'], default='oldest', help='History direction, default oldest first')
     parser.add_argument('--until', type=int, default=0, help='Inclusive source message upper bound; 0=latest snapshot')
     parser.add_argument('--apply', action='store_true', help='Apply reset after creating a SQLite backup')
     args = parser.parse_args()
+    if not (30<=args.download_timeout<=600 and 1<=args.download_attempts<=3):
+        parser.error('download-timeout=30..600，download-attempts=1..3')
     if args.until < 0 or (args.apply and args.command != 'reset'):
         parser.error('until>=0；apply仅适用于reset')
     if not (64 <= args.download_kib <= 102400 and 3 <= args.interval <= 3600 and args.max_posts >= 0):
