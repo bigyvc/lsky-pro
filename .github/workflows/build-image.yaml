@@ -323,6 +323,7 @@ jobs:
           python3 test/tg-channel-import.test.py
           python3 test/tg-channel-history.test.py
           python3 test/tg-channel-recovery.test.py
+          python3 test/tg-unsent-recovery.test.py
 
       - name: Verify disk-backed upload assembly
         run: php -d memory_limit=16M test/php/chunk-store.php
@@ -623,6 +624,8 @@ jobs:
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky -e LSKY_TEST_VIDEO=1 -e LSKY_TEST_AUDIO=1 lsky-smoke php -d memory_limit=64M /tmp/telegram-upload.php
           docker cp test/php/dayv-gallery.php lsky-smoke:/tmp/dayv-gallery.php
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/dayv-gallery.php
+          docker cp test/php/telegram-api-errors.php lsky-smoke:/tmp/telegram-api-errors.php
+          docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/telegram-api-errors.php
           docker cp test/php/telegram-photo-import.php lsky-smoke:/tmp/telegram-photo-import.php
           docker exec -e LSKY_TEST_APP_PATH=/var/www/lsky lsky-smoke php -d memory_limit=64M /tmp/telegram-photo-import.php
           docker cp test/php/r2-archive.php lsky-smoke:/tmp/r2-archive.php

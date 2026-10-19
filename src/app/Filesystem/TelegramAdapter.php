@@ -362,18 +362,62 @@ class TelegramAdapter implements FilesystemAdapter
      */
     protected function callApi(string $method, array $options = []): array
     {
+        $status=0; $data=null; $errno=0;
         try {
-            $response = $this->http->post($this->apiBase . '/bot' . $this->botToken . '/' . $method, $options);
-            $data = json_decode((string) $response->getBody(), true);
+            // Parse Telegram's HTTP 4xx/5xx JSON rather than letting Guzzle hide it.
+            // Never log the raw response, request URL, exception chain or credentials.
+            $options['http_errors']=false;
+            $response=$this->http->post($this->apiBase.'/bot'.$this->botToken.'/'.$method,$options);
+            $status=$response->getStatusCode();
+            $data=json_decode($response->getBody()->read(65536),true);
         } catch (Throwable $e) {
-            throw new RuntimeException('Telegram Bot API 请求失败 [' . $method . ']：请检查网络、服务状态与权限');
+            if (method_exists($e,'getHandlerContext')) {
+                $context=$e->getHandlerContext();$errno=(int)($context['errno']??0);
+            }
+            // Custom handlers can still throw a response-bearing RequestException.
+            if ($e instanceof \GuzzleHttp\Exception\RequestException && $e->hasResponse()) {
+                $response=$e->getResponse();$status=$response->getStatusCode();
+                $data=json_decode($response->getBody()->read(65536),true);
+            }
+            throw new RuntimeException($this->apiFailure($method,$status,$data,$errno));
         }
-
-        if (! is_array($data) || ($data['ok'] ?? false) !== true) {
-            throw new RuntimeException('Telegram Bot API 返回错误 [' . $method . ']：' . ($data['description'] ?? '未知错误'));
+        if ($status<200 || $status>=300 || !is_array($data) || ($data['ok']??false)!==true) {
+            throw new RuntimeException($this->apiFailure($method,$status,$data,$errno));
         }
+        $result=$data['result']??null;
+        if (is_array($result)) return $result;
+        // deleteMessage returns true, not a Message object. Callers ignore its result.
+        if ($method==='deleteMessage' && $result===true) return ['ok'=>true];
+        throw new RuntimeException('Telegram Bot API返回结构异常 ['.$method.']');
+    }
 
-        return $data['result'];
+    private function apiFailure(string $method,int $status,$data,int $errno): string
+    {
+        $data=is_array($data)?$data:[];
+        $code=is_numeric($data['error_code']??null)?(int)$data['error_code']:0;
+        $parameters=is_array($data['parameters']??null)?$data['parameters']:[];
+        $retry=filter_var($parameters['retry_after']??0,FILTER_VALIDATE_INT);
+        $retry=$retry!==false && $retry>=0 && $retry<=2147483647?$retry:0;
+        $description=is_string($data['description']??null)?substr($data['description'],0,4096):'';
+        $category=$errno===28?'TIMEOUT':(($errno || $status===0)?'TRANSPORT_ERROR':($status>=400?'HTTP_ERROR':'INVALID_RESPONSE'));
+        // Only fixed labels are exposed. Telegram descriptions can echo input or URLs.
+        $patterns=[
+            'RATE_LIMIT'=>'~too many requests|retry after|flood~i',
+            'PHOTO_INVALID_DIMENSIONS'=>'~PHOTO_INVALID_DIMENSIONS~i',
+            'IMAGE_PROCESS_FAILED'=>'~IMAGE_PROCESS_FAILED|failed to process (?:the )?photo~i',
+            'PHOTO_INVALID'=>'~PHOTO_INVALID|invalid photo~i',
+            'MEDIA_INVALID'=>'~MEDIA_INVALID|can.t parse (?:inputmedia|media)|media group.*invalid~i',
+            'FILE_TOO_BIG'=>'~file is too big|FILE_TOO_BIG|request entity too large~i',
+            'CHAT_NOT_FOUND'=>'~chat not found~i',
+            'CHAT_WRITE_FORBIDDEN'=>'~CHAT_WRITE_FORBIDDEN|not enough rights|not a member|bot was kicked|need administrator~i',
+            'UNAUTHORIZED'=>'~unauthorized~i',
+            'MESSAGE_DELETE_FAILED'=>'~message to delete not found|message can.t be deleted~i',
+        ];
+        foreach ($patterns as $name=>$pattern) if (preg_match($pattern,$description)) {$category=$name;break;}
+        if ($status===429 || $code===429) $category='RATE_LIMIT';
+        if (preg_match('~failed to send message #(\d{1,2})~i',$description,$match)) $category.=':item'.(int)$match[1];
+        return 'Telegram Bot API请求失败 ['.$method.']：HTTP='.$status.' TG='.$code.' curl='.$errno
+            .' category='.$category.($retry?' retry_after='.$retry.'s':'');
     }
 
     /**
