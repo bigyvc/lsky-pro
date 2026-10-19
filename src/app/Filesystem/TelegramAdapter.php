@@ -146,18 +146,46 @@ class TelegramAdapter implements FilesystemAdapter
     /** JPEG photo albums, kept separate from byte-preserving document uploads. */
     public function sendPhotoBatch(array $files): array
     {
-        if (count($files) < 1 || count($files) > 10) throw new RuntimeException('照片组需要1至10张照片');
-        $media=[]; $parts=[['name'=>'chat_id','contents'=>$this->chatId], ['name'=>'disable_notification','contents'=>'true']];
-        foreach (array_values($files) as $i=>$item) {
-            $parts[]=['name'=>'p'.$i,'contents'=>$item['stream'],'filename'=>$item['filename']];
-            $media[]=['type'=>'photo','media'=>'attach://p'.$i];
+        if (count($files)<1 || count($files)>10) throw new RuntimeException('照片组需要1至10张照片');
+        // Keep the caller's tmpfile handles alive. Give each HTTP attempt fresh handles,
+        // since Guzzle may close its multipart streams, including on rejected requests.
+        $paths=[];
+        foreach ($files as $file) {
+            $stream=$file['stream'];
+            $uri=is_resource($stream)?(stream_get_meta_data($stream)['uri']??''):'';
+            if (!$uri || !is_file($uri) || !is_readable($uri)) throw new RuntimeException('照片重试需要可读取的本地暂存文件');
+            $paths[]=$uri;
         }
-        if (count($files) === 1) {
-            $parts[2]['name']='photo';
-            return [$this->callApi('sendPhoto',['multipart'=>$parts])];
+        for ($attempt=0;;$attempt++) {
+            $copies=[];
+            try {
+                $media=[];$parts=[['name'=>'chat_id','contents'=>$this->chatId],['name'=>'disable_notification','contents'=>'true']];
+                foreach (array_values($files) as $i=>$item) {
+                    $copy=fopen($paths[$i],'rb');if (!$copy) throw new RuntimeException('无法读取照片暂存');
+                    $copies[]=$copy;
+                    $parts[]=['name'=>'p'.$i,'contents'=>$copy,'filename'=>$item['filename']];
+                    $media[]=['type'=>'photo','media'=>'attach://p'.$i];
+                }
+                if (count($files)===1) {
+                    $parts[2]['name']='photo';
+                    return [$this->callApi('sendPhoto',['multipart'=>$parts])];
+                }
+                $parts[]=['name'=>'media','contents'=>json_encode($media,JSON_THROW_ON_ERROR)];
+                return $this->callApi('sendMediaGroup',['multipart'=>$parts]);
+            } catch (\App\Exceptions\TelegramRateLimitException $e) {
+                // Retry only Telegram's explicit HTTP429 + ok=false + error_code429.
+                // Transport errors, HTTP5xx and invalid photos never enter this branch.
+                if ($attempt>=2 || $e->retryAfter<1 || $e->retryAfter>60) throw $e;
+                $this->waitForPhotoRateLimit($e->retryAfter+2);
+            } finally {
+                foreach ($copies as $copy) if (is_resource($copy)) fclose($copy);
+            }
         }
-        $parts[]=['name'=>'media','contents'=>json_encode($media, JSON_THROW_ON_ERROR)];
-        return $this->callApi('sendMediaGroup',['multipart'=>$parts]);
+    }
+
+    protected function waitForPhotoRateLimit(int $seconds): void
+    {
+        sleep($seconds);
     }
 
     public function discardPhotoMessages(array $ids): void
@@ -379,16 +407,27 @@ class TelegramAdapter implements FilesystemAdapter
                 $response=$e->getResponse();$status=$response->getStatusCode();
                 $data=json_decode($response->getBody()->read(65536),true);
             }
-            throw new RuntimeException($this->apiFailure($method,$status,$data,$errno));
+            throw $this->apiException($method,$status,$data,$errno);
         }
         if ($status<200 || $status>=300 || !is_array($data) || ($data['ok']??false)!==true) {
-            throw new RuntimeException($this->apiFailure($method,$status,$data,$errno));
+            throw $this->apiException($method,$status,$data,$errno);
         }
         $result=$data['result']??null;
         if (is_array($result)) return $result;
         // deleteMessage returns true, not a Message object. Callers ignore its result.
         if ($method==='deleteMessage' && $result===true) return ['ok'=>true];
         throw new RuntimeException('Telegram Bot API返回结构异常 ['.$method.']');
+    }
+
+    private function apiException(string $method,int $status,$data,int $errno): RuntimeException
+    {
+        $message=$this->apiFailure($method,$status,$data,$errno);
+        if ($errno===0 && $status===429 && is_array($data) && ($data['ok']??null)===false && ($data['error_code']??null)===429) {
+            $parameters=is_array($data['parameters']??null)?$data['parameters']:[];
+            $retry=filter_var($parameters['retry_after']??null,FILTER_VALIDATE_INT);
+            if ($retry!==false && $retry>=1 && $retry<=2147483647) return new \App\Exceptions\TelegramRateLimitException($message,$retry);
+        }
+        return new RuntimeException($message);
     }
 
     private function apiFailure(string $method,int $status,$data,int $errno): string

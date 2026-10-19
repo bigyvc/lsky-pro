@@ -73,3 +73,5 @@ systemctl stop tg-import-watchdog.service
 ```
 
 本地验证：策略测试覆盖异常退出、下载卡住、正常上传、冷却/预算、完成/手动退出、外部锁、脱敏以及停止时新增上传意图的竞态。Docker/systemd实际部署需在VPS执行安装命令后验证。
+
+明确短时429的请求内等待重试及本次历史状态恢复见：[限流恢复](telegram-rate-limit-recovery.md)。

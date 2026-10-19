@@ -58,3 +58,5 @@ docker compose -p tg-import -f /opt/tg-import/source/tools/tg-channel-import/com
 - 其他5xx/无JSON：检查本地API服务、代理和资源；诊断不会输出原始HTML或请求地址。
 
 官方参考：[Bot API ResponseParameters](https://core.telegram.org/bots/api#responseparameters)、[Bots FAQ限流说明](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this)。
+
+更新：当前安装入口会委托限流补丁安装器，一起部署所需异常类，接受上述原版及已核对诊断版适配器；见[限流处理](telegram-rate-limit-recovery.md)。
