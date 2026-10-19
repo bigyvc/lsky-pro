@@ -326,6 +326,7 @@ jobs:
           python3 test/tg-unsent-recovery.test.py
           python3 test/tg-jpeg-recovery.test.py
           python3 test/tg-jpeg-prepared.test.py
+          python3 test/tg-watchdog.test.py
 
       - name: Verify disk-backed upload assembly
         run: php -d memory_limit=16M test/php/chunk-store.php
